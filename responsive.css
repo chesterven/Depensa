@@ -1,0 +1,119 @@
+/* ==========================================================================
+   Despensa — adaptaciones por tamaño de pantalla y dispositivo
+   Mobile first: el archivo principal define la versión de teléfono.
+   ========================================================================== */
+
+/* ---------- Teléfonos pequeños (iPhone SE, Android compactos) ---------- */
+@media (max-width: 359px) {
+  body { font-size: 15px; }
+  .app-main { padding-left: 12px; padding-right: 12px; }
+  .chip-row { margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
+  .stat__value { font-size: 1.45rem; }
+  .hero__value { font-size: 1.95rem; }
+  .nav-item { font-size: .63rem; }
+}
+
+/* ---------- Teléfonos grandes ---------- */
+@media (min-width: 430px) {
+  .stat-grid { gap: 12px; }
+  .app-main { padding-left: 18px; padding-right: 18px; }
+}
+
+/* ---------- Tabletas ---------- */
+@media (min-width: 620px) {
+  :root { --content-max: 660px; }
+  .stat-grid { grid-template-columns: repeat(3, 1fr); }
+  .stat--wide { grid-column: span 3; }
+  .sheet { border-radius: var(--r-xl); margin-bottom: 20px; max-width: 560px; }
+  .sheet-backdrop { align-items: center; padding: 20px; }
+  .app-header { padding-top: calc(var(--safe-top) + 14px); }
+}
+
+/* ---------- Escritorio: la navegación pasa a una barra lateral ---------- */
+@media (min-width: 900px) {
+  :root { --content-max: 780px; --rail: 104px; }
+
+  body { padding-left: var(--rail); }
+
+  .bottom-nav {
+    top: 0;
+    bottom: 0;
+    right: auto;
+    width: var(--rail);
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: 22px 10px;
+    border-top: 0;
+    border-right: 1px solid var(--line);
+    background: var(--surface);
+    backdrop-filter: none;
+  }
+  .bottom-nav::before {
+    content: '';
+    display: block;
+    width: 42px;
+    height: 42px;
+    margin: 0 auto 18px;
+    border-radius: 14px;
+    background: url('../assets/icons/icon-96.png') center / cover no-repeat;
+    box-shadow: var(--shadow-2);
+  }
+  .bottom-nav__inner { flex-direction: column; gap: 6px; width: 100%; }
+  .nav-item { min-height: 62px; font-size: .72rem; gap: 5px; }
+  .nav-item__badge { top: 8px; left: 54%; }
+
+  .app-main { padding-bottom: 60px; }
+  .toast-host { bottom: 22px; left: var(--rail); }
+  .fab {
+    bottom: 26px;
+    right: max(24px, calc(50% + var(--rail) / 2 - var(--content-max) / 2 + 16px));
+  }
+  .sheet-backdrop { left: var(--rail); }
+
+  /* Cursor disponible: se permiten efectos de hover discretos */
+  .tile:hover { border-color: var(--line-strong); }
+  .menu-item:hover { background: var(--surface-2); }
+}
+
+@media (min-width: 1180px) {
+  :root { --content-max: 900px; }
+  .stat-grid { grid-template-columns: repeat(4, 1fr); }
+  .stat--wide { grid-column: span 4; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  .two-col > * { margin-top: 0 !important; }
+}
+
+/* ---------- Modo apaisado en teléfonos ---------- */
+@media (max-height: 480px) and (orientation: landscape) and (max-width: 899px) {
+  .app-header { position: static; }
+  .sheet { max-height: 96vh; }
+  .sheet-backdrop { align-items: stretch; }
+}
+
+/* ---------- Dispositivos sin puntero fino: objetivos táctiles más grandes ---------- */
+@media (pointer: coarse) {
+  .btn-sm { min-height: 42px; }
+  .menu-item { padding-top: 16px; padding-bottom: 16px; }
+  .chip { min-height: 40px; }
+}
+
+/* ---------- Instalada como app (standalone) ---------- */
+@media (display-mode: standalone) {
+  .app-header { padding-top: calc(var(--safe-top) + 14px); }
+  .install-banner { display: none !important; }
+}
+
+/* ---------- Alto contraste ---------- */
+@media (prefers-contrast: more) {
+  :root { --line: #b9b1a0; --line-strong: #8d8674; --muted: #55594c; }
+  .tile, .card, .stat { border-width: 1.5px; }
+}
+
+/* ---------- Impresión (listas de compras y presupuestos) ---------- */
+@media print {
+  .bottom-nav, .fab, .app-header__actions, .toast-host, .chip-row, .sheet-backdrop { display: none !important; }
+  body { background: #fff; padding: 0; }
+  body::before { display: none; }
+  .app-main { padding: 0; max-width: none; }
+  .card, .tile, .stat { box-shadow: none; border-color: #ccc; break-inside: avoid; }
+}

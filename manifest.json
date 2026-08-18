@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Despensa · Control del hogar",
   "short_name": "Despensa",
-  "description": "Inventario del hogar, lista de compras automática, precios por comercio y presupuestos. Funciona sin conexión y guarda todo en tu dispositivo.",
+  "description": "Inventario del hogar, existencias y lista de compras automática por comercio. Funciona sin conexión y guarda todo en tu dispositivo.",
   "lang": "es",
   "dir": "ltr",
   "start_url": "./",
@@ -38,9 +38,9 @@
       "icons": [{ "src": "./assets/icons/icon-96.png", "sizes": "96x96" }]
     },
     {
-      "name": "Presupuesto",
-      "short_name": "Presupuesto",
-      "url": "./#/presupuesto",
+      "name": "Comercios",
+      "short_name": "Comercios",
+      "url": "./#/comercios",
       "icons": [{ "src": "./assets/icons/icon-96.png", "sizes": "96x96" }]
     }
   ],
