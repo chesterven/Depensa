@@ -186,6 +186,10 @@ button { cursor: pointer; }
   padding: 14px 16px calc(var(--nav-h) + var(--safe-bottom) + 26px);
   min-height: 60vh;
 }
+/* Reserva espacio extra cuando hay un botón flotante para que no tape la última fila */
+.app-main:has(.fab) {
+  padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 92px);
+}
 
 .bottom-nav {
   position: fixed;

@@ -63,6 +63,7 @@
   .nav-item__badge { top: 8px; left: 54%; }
 
   .app-main { padding-bottom: 60px; }
+  .app-main:has(.fab) { padding-bottom: 108px; }
   .toast-host { bottom: 22px; left: var(--rail); }
   .fab {
     bottom: 26px;
