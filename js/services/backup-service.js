@@ -3,21 +3,19 @@
  * El archivo JSON es el mecanismo para compartir los datos entre los miembros del hogar.
  * Nada se envía a ningún servidor: el usuario controla el archivo en todo momento.
  */
-import { STORE, bulkPut, clearAll, getAll } from '../database/database.js';
+import { STORE, clearAll } from '../database/database.js';
 import * as productsDb from '../database/products.js';
-import * as purchasesDb from '../database/purchases.js';
 import * as storesDb from '../database/stores.js';
 import * as categoriesDb from '../database/categories.js';
 import * as listDb from '../database/shopping-list.js';
 import { getAppSettings, saveAppSettings } from '../database/settings.js';
 import { listPhotos, bulkPutPhotos } from '../database/photos.js';
-import { state, refresh } from '../state.js';
-import { recalcProductStats } from './inventory-service.js';
+import { refresh } from '../state.js';
 import { normalize } from '../utils/format.js';
 import { todayKey } from '../utils/date.js';
 import { uuid, nowIso } from '../utils/id.js';
 
-export const FORMAT_VERSION = 1;
+export const FORMAT_VERSION = 2;
 export const APP_ID = 'despensa-hogar';
 
 /** Nombre sugerido del archivo: inventario-hogar-2026-08-17.json */
@@ -27,9 +25,8 @@ export function backupFilename(date = new Date()) {
 
 /** Construye el objeto completo de respaldo. */
 export async function buildBackup({ includePhotos = true } = {}) {
-  const [products, purchases, stores, categories, shoppingList, settings, photos] = await Promise.all([
+  const [products, stores, categories, shoppingList, settings, photos] = await Promise.all([
     productsDb.listProducts(),
-    purchasesDb.listPurchases(),
     storesDb.listStores(),
     categoriesDb.listCategories(),
     listDb.listShoppingItems(),
@@ -43,13 +40,12 @@ export async function buildBackup({ includePhotos = true } = {}) {
     exportedAt: nowIso(),
     counts: {
       products: products.length,
-      purchases: purchases.length,
       stores: stores.length,
       categories: categories.length,
       shoppingList: shoppingList.length,
       photos: photos.length,
     },
-    data: { products, purchases, stores, categories, shoppingList, settings, photos },
+    data: { products, stores, categories, shoppingList, settings, photos },
   };
 }
 
@@ -123,23 +119,66 @@ export function readBackupFile(file) {
   });
 }
 
+/**
+ * Convierte respaldos de la versión anterior (que incluían historial de compras)
+ * al formato actual: estado disponible/agotado, comercio habitual y precio de referencia.
+ */
+export function normalizePayload(payload) {
+  const data = { ...(payload?.data || {}) };
+  const legacyPurchases = Array.isArray(data.purchases) ? data.purchases : null;
+  const isLegacy = legacyPurchases || (payload?.formatVersion ?? 1) < 2;
+  if (!isLegacy) return { payload, converted: false, legacyPurchases: 0 };
+
+  const lastByProduct = new Map();
+  for (const purchase of legacyPurchases || []) {
+    const current = lastByProduct.get(purchase.productId);
+    if (!current || String(purchase.purchaseDate) > String(current.purchaseDate)) {
+      lastByProduct.set(purchase.productId, purchase);
+    }
+  }
+
+  data.products = (data.products || []).map((product) => {
+    const last = lastByProduct.get(product.id);
+    const quantity = Number(product.currentQuantity);
+    return {
+      ...product,
+      storeId: product.storeId || product.lastStoreId || last?.storeId || null,
+      referencePrice: product.referencePrice ?? product.avgPrice ?? product.lastPrice ?? last?.unitPrice ?? null,
+      status: product.status || (isFinite(quantity) && quantity > 0 ? 'available' : 'out'),
+      lastPurchasedAt: product.lastPurchasedAt || product.lastPurchaseDate || null,
+    };
+  });
+  delete data.purchases;
+
+  return {
+    payload: { ...payload, formatVersion: FORMAT_VERSION, data },
+    converted: true,
+    legacyPurchases: (legacyPurchases || []).length,
+  };
+}
+
 /** Valida el contenido y devuelve el resumen que se muestra antes de importar. */
-export function analyzeBackup(payload) {
+export function analyzeBackup(rawPayload) {
   const errors = [];
   const warnings = [];
-  if (!payload || typeof payload !== 'object') errors.push('El archivo está vacío o dañado.');
+  if (!rawPayload || typeof rawPayload !== 'object') errors.push('El archivo está vacío o dañado.');
+
+  const { payload, converted, legacyPurchases } = normalizePayload(rawPayload || {});
   const data = payload?.data || {};
-  const arrays = ['products', 'purchases', 'stores', 'categories', 'shoppingList'];
+  const arrays = ['products', 'stores', 'categories', 'shoppingList'];
   if (!errors.length && !arrays.some((key) => Array.isArray(data[key]))) {
     errors.push('El archivo no contiene datos de la despensa.');
   }
-  if (payload?.app && payload.app !== APP_ID) warnings.push('El archivo proviene de otra aplicación.');
-  if (payload?.formatVersion > FORMAT_VERSION) {
+  if (rawPayload?.app && rawPayload.app !== APP_ID) warnings.push('El archivo proviene de otra aplicación.');
+  if ((rawPayload?.formatVersion ?? 1) > FORMAT_VERSION) {
     warnings.push('El archivo fue creado con una versión más nueva de la app. Algunos datos podrían ignorarse.');
   }
+  if (converted && legacyPurchases) {
+    warnings.push(`El archivo incluye ${legacyPurchases} compras de la versión anterior: se conservarán el comercio y el precio de referencia de cada producto, no el historial.`);
+  }
+
   const summary = {
     products: (data.products || []).length,
-    purchases: (data.purchases || []).length,
     stores: (data.stores || []).length,
     categories: (data.categories || []).length,
     shoppingList: (data.shoppingList || []).length,
@@ -155,15 +194,15 @@ const newer = (a, b) => (String(a?.updatedAt || a?.createdAt || '') >= String(b?
 
 /**
  * Importa la información.
- * @param {object} payload  contenido del archivo
+ * @param {object} rawPayload contenido del archivo
  * @param {'replace'|'merge'} mode
  */
-export async function importBackup(payload, mode = 'merge') {
+export async function importBackup(rawPayload, mode = 'merge') {
+  const { payload } = normalizePayload(rawPayload);
   const data = payload?.data || {};
   const report = {
     mode,
     products: { added: 0, updated: 0, skipped: 0 },
-    purchases: { added: 0, skipped: 0 },
     stores: { added: 0, skipped: 0 },
     categories: { added: 0, skipped: 0 },
     shoppingList: { added: 0, skipped: 0 },
@@ -171,11 +210,11 @@ export async function importBackup(payload, mode = 'merge') {
   };
 
   if (mode === 'replace') {
-    await clearAll([STORE.PRODUCTS, STORE.PURCHASES, STORE.STORES, STORE.CATEGORIES, STORE.SHOPPING_LIST, STORE.PHOTOS]);
+    await clearAll([STORE.PRODUCTS, STORE.STORES, STORE.CATEGORIES, STORE.SHOPPING_LIST, STORE.PHOTOS]);
   }
 
   /* ---------- Categorías ---------- */
-  let existingCategories = await categoriesDb.listCategories();
+  const existingCategories = await categoriesDb.listCategories();
   const catById = byId(existingCategories);
   const catByName = byName(existingCategories);
   const catMap = new Map();
@@ -220,6 +259,7 @@ export async function importBackup(payload, mode = 'merge') {
     const record = productsDb.createProduct({
       ...incoming,
       categoryId: catMap.get(incoming.categoryId) || incoming.categoryId || null,
+      storeId: storeMap.get(incoming.storeId) || incoming.storeId || null,
     });
     const current = prodById.get(record.id) || prodByName.get(normalize(record.name));
     if (current) {
@@ -239,27 +279,6 @@ export async function importBackup(payload, mode = 'merge') {
     report.products.added += 1;
   }
   if (productsToPut.length) await productsDb.bulkPutProducts(productsToPut);
-
-  /* ---------- Historial de compras ---------- */
-  const existingPurchases = await purchasesDb.listPurchases();
-  const purchaseIds = new Set(existingPurchases.map((p) => p.id));
-  const signature = (p) => [p.productId, p.purchaseDate, p.quantity, p.unitPrice, p.storeId].join('|');
-  const purchaseSignatures = new Set(existingPurchases.map(signature));
-  const purchasesToAdd = [];
-  for (const incoming of data.purchases || []) {
-    const record = purchasesDb.createPurchase({
-      ...incoming,
-      productId: productMap.get(incoming.productId) || incoming.productId || null,
-      storeId: storeMap.get(incoming.storeId) || incoming.storeId || null,
-      categoryId: catMap.get(incoming.categoryId) || incoming.categoryId || null,
-    });
-    if (purchaseIds.has(record.id) || purchaseSignatures.has(signature(record))) { report.purchases.skipped += 1; continue; }
-    purchaseIds.add(record.id);
-    purchaseSignatures.add(signature(record));
-    purchasesToAdd.push(record);
-    report.purchases.added += 1;
-  }
-  if (purchasesToAdd.length) await purchasesDb.bulkPutPurchases(purchasesToAdd);
 
   /* ---------- Lista de compras ---------- */
   const existingItems = await listDb.listShoppingItems();
@@ -306,21 +325,14 @@ export async function importBackup(payload, mode = 'merge') {
     }
   }
 
-  // Recalcula estadísticas para que promedios y últimos precios queden coherentes
-  await refresh(['products', 'purchases', 'stores', 'categories', 'shoppingList', 'settings'], { silent: true });
-  for (const product of state.products) {
-    await recalcProductStats(product.id);
-  }
   await refresh();
   return report;
 }
 
 /** Elimina toda la información local (acción irreversible). */
 export async function wipeAllData() {
-  await clearAll([STORE.PRODUCTS, STORE.PURCHASES, STORE.STORES, STORE.CATEGORIES, STORE.SHOPPING_LIST, STORE.PHOTOS]);
+  await clearAll([STORE.PRODUCTS, STORE.STORES, STORE.CATEGORIES, STORE.SHOPPING_LIST, STORE.PHOTOS]);
   await saveAppSettings({ demoLoaded: false });
   await categoriesDb.ensureDefaultCategories();
   await refresh();
 }
-
-export { getAll };

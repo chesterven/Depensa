@@ -28,7 +28,7 @@ export function render(ctx) {
       h('div.grow',
         h('div.muted.small', 'Última copia de seguridad'),
         h('div', { style: { fontWeight: 650, fontSize: '1.05rem' } }, lastBackup ? formatRelative(lastBackup) : 'Nunca'),
-        h('div.muted.small', `${plural(state.products.length, 'producto')} · ${plural(state.purchases.length, 'compra')}`),
+        h('div.muted.small', `${plural(state.products.length, 'producto')} · ${plural(state.stores.length, 'comercio')}`),
       ),
     ),
     h('div.notice.mt-2',
@@ -39,7 +39,7 @@ export function render(ctx) {
   /* ---- Exportar ---- */
   root.appendChild(h('div.card.mt-2',
     h('div.card-head', h('h3', 'Exportar respaldo')),
-    h('p.muted.small', `Se genera un archivo JSON (${backupFilename()}) con productos, categorías, comercios, historial, lista de compras y configuración.`),
+    h('p.muted.small', `Se genera un archivo JSON (${backupFilename()}) con productos, categorías, comercios, lista de compras y configuración.`),
     switchRow({
       title: 'Incluir fotografías',
       hint: 'Aumenta el tamaño del archivo',
@@ -145,13 +145,13 @@ export function render(ctx) {
   /* ---- Zona peligrosa ---- */
   root.appendChild(h('div.card',
     h('div.card-head', h('h3', { style: { color: 'var(--danger)' } }, 'Borrar todo')),
-    h('p.muted.small', 'Elimina productos, compras, comercios y listas de este dispositivo. Exporta un respaldo antes.'),
+    h('p.muted.small', 'Elimina productos, comercios y listas de este dispositivo. Exporta un respaldo antes.'),
     h('button.btn.btn-danger-soft.btn-block', {
       type: 'button',
       onclick: async () => {
         const ok = await confirmDialog({
           title: '¿Borrar toda la información?',
-          message: 'Se eliminarán todos los productos, compras, comercios y listas guardados en este dispositivo.',
+          message: 'Se eliminarán todos los productos, comercios y listas guardados en este dispositivo.',
           detail: 'Esta acción no se puede deshacer. Si no tienes un respaldo, la información se perderá.',
           confirmText: 'Borrar todo',
         });
@@ -201,7 +201,6 @@ export function render(ctx) {
       content: h('div',
         h('div.card', { style: { boxShadow: 'none' } },
           row('Productos encontrados', summary.products),
-          row('Compras encontradas', summary.purchases),
           row('Comercios encontrados', summary.stores),
           row('Categorías encontradas', summary.categories),
           row('Artículos en lista', summary.shoppingList),
@@ -262,8 +261,7 @@ export function render(ctx) {
             ? 'La información del archivo reemplazó los datos anteriores.'
             : 'La información se combinó con tus datos actuales.')),
         h('div.card.mt-2', { style: { boxShadow: 'none' } },
-          line('Productos', `${report.products.added} nuevos · ${report.products.updated} actualizados`),
-          line('Compras', `${report.purchases.added} agregadas · ${report.purchases.skipped} duplicadas`),
+          line('Productos', `${report.products.added} nuevos · ${report.products.updated} actualizados · ${report.products.skipped} sin cambios`),
           line('Comercios', `${report.stores.added} nuevos`),
           line('Categorías', `${report.categories.added} nuevas`),
           line('Lista de compras', `${report.shoppingList.added} artículos`),

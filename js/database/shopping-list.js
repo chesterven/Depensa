@@ -6,19 +6,19 @@ export const ITEM_STATUS = { PENDING: 'pending', PURCHASED: 'purchased' };
 
 export function createShoppingItem(data = {}) {
   const ts = nowIso();
+  const price = data.estimatedPrice;
   return {
     id: data.id || uuid(),
     productId: data.productId || null,
     name: (data.name || '').trim(),
-    quantity: Number(data.quantity) || 1,
-    estimatedPrice: data.estimatedPrice ?? null, // precio unitario estimado
+    quantity: Math.max(1, Math.round(Number(data.quantity) || 1)),
+    estimatedPrice: price === '' || price == null || !isFinite(Number(price)) ? null : Number(price),
     storeId: data.storeId || null,
     status: data.status || ITEM_STATUS.PENDING,
-    auto: !!data.auto, // agregado automáticamente por el control de inventario
+    auto: !!data.auto, // agregado automáticamente al marcar el producto como agotado
     notes: data.notes || '',
     createdAt: data.createdAt || ts,
     updatedAt: data.updatedAt || ts,
-    purchasedAt: data.purchasedAt || null,
   };
 }
 

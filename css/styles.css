@@ -819,7 +819,7 @@ button { cursor: pointer; }
 .mt-0 { margin-top: 0; } .mt-1 { margin-top: 8px; } .mt-2 { margin-top: 16px; } .mt-3 { margin-top: 24px; }
 .mb-1 { margin-bottom: 8px; } .mb-2 { margin-bottom: 16px; }
 .display { font-family: var(--font-display); font-weight: 600; letter-spacing: -.02em; }
-.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .divider { height: 1px; background: var(--line); margin: 14px 0; border: 0; }
 .notice {
   display: flex; gap: 10px;

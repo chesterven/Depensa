@@ -1,16 +1,18 @@
-/** Lista de compras: automática, editable y con presupuesto estimado. */
+/** Lista de compras: automática, editable y agrupable por comercio. */
 import { h, haptic } from '../../utils/dom.js';
 import { icon } from '../../utils/icons.js';
-import { money, qty as fmtQty, round } from '../../utils/format.js';
+import { money } from '../../utils/format.js';
 import { state, pendingItems } from '../../state.js';
 import { getPref, setPref } from '../../database/settings.js';
-import { updateItem, removeItem, clearPending, refreshSuggestions, rebuildFromInventory, listTotals, groupByStore } from '../../services/shopping-service.js';
+import {
+  updateItem, removeItem, clearPending, refreshSuggestions, rebuildFromInventory,
+  listTotals, groupByStore, markItemPurchased, undoPurchase,
+} from '../../services/shopping-service.js';
 import { emptyState } from '../ui/empty.js';
 import { segmented } from '../ui/form.js';
 import { openSheet } from '../ui/sheet.js';
 import { confirmDialog } from '../ui/confirm.js';
-import { toastOk, toastError } from '../ui/toast.js';
-import { openPurchaseForm } from '../purchase-form.js';
+import { toast, toastOk, toastError } from '../ui/toast.js';
 import { openShoppingItemForm } from '../shopping-item-form.js';
 
 export function render(ctx) {
@@ -20,7 +22,9 @@ export function render(ctx) {
 
   ctx.setHeader({
     title: 'Lista de compras',
-    subtitle: items.length ? `${items.length} artículos · ≈ ${money(totals.total)}` : 'Todo cubierto',
+    subtitle: items.length
+      ? `${items.length} artículos${totals.total ? ` · ≈ ${money(totals.total)}` : ''}`
+      : 'Todo cubierto',
     actions: [
       { iconName: 'plus', label: 'Agregar artículo', onClick: () => openShoppingItemForm() },
       { iconName: 'dots', label: 'Más opciones', onClick: () => openMenu() },
@@ -34,7 +38,7 @@ export function render(ctx) {
     root.appendChild(emptyState({
       iconName: 'checkCircle',
       title: 'No falta nada',
-      text: 'Los productos agotados o por debajo del mínimo se agregan aquí automáticamente.',
+      text: 'Los productos que marques como agotados aparecerán aquí automáticamente.',
       actionLabel: 'Agregar artículo',
       onAction: () => openShoppingItemForm(),
       secondaryLabel: 'Revisar inventario',
@@ -64,39 +68,42 @@ export function render(ctx) {
           h('span', { html: icon('store', { size: 18 }) }),
           group.storeName,
           h('span.spacer'),
-          h('span.count', money(group.subtotal)),
+          h('span.count', group.subtotal ? money(group.subtotal) : `${group.items.length}`),
         ),
-        h('div.list', ...group.items.map((item) => itemTile(item, ctx))),
+        h('div.list', ...group.items.map((item) => itemTile(item))),
       ));
     });
   } else {
-    root.appendChild(h('div.list', ...items.map((item) => itemTile(item, ctx))));
+    root.appendChild(h('div.list', ...items.map((item) => itemTile(item))));
   }
 
   /* ---- Totales ---- */
   root.appendChild(h('div.card.mt-2',
     h('div.row.row--between',
       h('div',
-        h('div.muted.small', 'Presupuesto estimado'),
-        h('div.display', { style: { fontSize: '1.6rem' } }, money(totals.total)),
-        totals.withPrice < items.length
-          ? h('div.muted.small', `${items.length - totals.withPrice} sin precio conocido`)
-          : h('div.muted.small', `${items.length} artículos`),
+        h('div.muted.small', totals.total ? 'Total estimado' : 'Artículos pendientes'),
+        h('div.display', { style: { fontSize: '1.6rem' } }, totals.total ? money(totals.total) : String(items.length)),
+        h('div.muted.small', totals.withPrice < items.length
+          ? `${items.length - totals.withPrice} sin precio de referencia`
+          : `${items.length} artículos`),
       ),
-      h('button.btn.btn-primary', {
-        type: 'button',
-        onclick: () => ctx.go('/presupuesto'),
-      }, h('span', { html: icon('calculator', { size: 18 }) }), 'Presupuesto'),
+      h('button.btn.btn-soft', { type: 'button', onclick: () => shareList() },
+        h('span', { html: icon('share', { size: 18 }) }), 'Compartir'),
     ),
   ));
 
   return root;
 
-  function itemTile(item, context) {
+  function itemTile(item) {
     const product = state.productsById.get(item.productId);
     const unitPrice = Number(item.estimatedPrice);
     const hasPrice = isFinite(unitPrice) && unitPrice > 0;
-    const estimated = hasPrice ? round(unitPrice * (Number(item.quantity) || 0), 2) : null;
+    const estimated = hasPrice ? unitPrice * (Number(item.quantity) || 1) : null;
+    const meta = [
+      item.storeId ? state.storesById.get(item.storeId)?.name : null,
+      product?.unit || null,
+      hasPrice ? `${money(unitPrice)} c/u` : null,
+    ].filter(Boolean).join(' · ');
 
     return h('div.tile',
       h('button.btn-icon', {
@@ -104,16 +111,7 @@ export function render(ctx) {
         'aria-label': `Marcar ${item.name} como comprado`,
         style: { background: 'var(--pine-soft)', color: 'var(--pine)' },
         html: icon('check', { size: 20 }),
-        onclick: () => {
-          haptic();
-          openPurchaseForm({
-            productId: item.productId,
-            shoppingItemId: item.id,
-            quantity: item.quantity,
-            storeId: item.storeId,
-            unitPrice: item.estimatedPrice,
-          });
-        },
+        onclick: () => buy(item),
       }),
       h('button', {
         type: 'button',
@@ -122,80 +120,104 @@ export function render(ctx) {
         onclick: () => openItemMenu(item),
       },
       h('div.tile__title', item.name, item.auto ? h('span.badge.badge--low', 'automático') : null),
-      h('div.tile__meta',
-        `${fmtQty(item.quantity)} ${product?.unit || ''}`.trim(),
-        hasPrice ? h('span', ` · ${money(unitPrice)} c/u`) : h('span', ' · sin precio'),
-        item.storeId ? h('span', ` · ${state.storesById.get(item.storeId)?.name || ''}`) : null,
-      )),
+      h('div.tile__meta', meta || 'Sin comercio asignado')),
       h('div.tile__right',
         estimated != null ? h('div.tile__price', money(estimated)) : null,
         h('div.stepper', { style: { padding: '2px' } },
           h('button', {
             type: 'button', 'aria-label': `Menos ${item.name}`,
             style: { width: '30px', height: '30px' },
-            disabled: (Number(item.quantity) || 0) <= 1,
+            disabled: (Number(item.quantity) || 1) <= 1,
             html: icon('minus', { size: 15 }),
             onclick: async () => {
-              const next = round((Number(item.quantity) || 1) - 1, 3);
-              if (next <= 0) return;
-              await updateItem(item.id, { quantity: next, auto: item.auto });
+              const next = (Number(item.quantity) || 1) - 1;
+              if (next < 1) return;
+              await updateItem(item.id, { quantity: next });
             },
           }),
-          h('span.stepper__value', { style: { minWidth: '28px', fontSize: '.95rem' } }, fmtQty(item.quantity)),
+          h('span.stepper__value', { style: { minWidth: '26px', width: '26px', fontSize: '.95rem' } }, String(item.quantity || 1)),
           h('button', {
             type: 'button', 'aria-label': `Más ${item.name}`,
             style: { width: '30px', height: '30px' },
             html: icon('plus', { size: 15 }),
-            onclick: async () => {
-              await updateItem(item.id, { quantity: round((Number(item.quantity) || 0) + 1, 3), auto: item.auto });
-            },
+            onclick: async () => { await updateItem(item.id, { quantity: (Number(item.quantity) || 1) + 1 }); },
           }),
         ),
       ),
     );
+  }
 
-    function openItemMenu(target) {
-      openSheet({
-        title: target.name,
-        subtitle: `${fmtQty(target.quantity)} · ${hasPrice ? money(unitPrice) + ' c/u' : 'sin precio estimado'}`,
-        dialog: true,
-        content: (api) => h('div.menu-list',
-          menuItem('check', 'Marcar como comprado', 'Registra la compra y actualiza el inventario', () => {
-            api.close();
-            openPurchaseForm({
-              productId: target.productId,
-              shoppingItemId: target.id,
-              quantity: target.quantity,
-              storeId: target.storeId,
-              unitPrice: target.estimatedPrice,
-            });
-          }),
-          menuItem('pencil', 'Editar artículo', 'Cantidad, comercio y precio estimado', () => {
-            api.close();
-            openShoppingItemForm(target);
-          }),
-          target.productId ? menuItem('box', 'Ver producto', 'Precios e historial', () => {
-            api.close();
-            context.go(`/producto/${target.productId}`);
-          }) : null,
-          menuItem('trash', 'Quitar de la lista', '', async () => {
-            api.close();
-            await removeItem(target.id);
-            toastOk('Artículo eliminado de la lista');
-          }, true),
-        ),
+  async function buy(item) {
+    haptic();
+    try {
+      const snapshot = await markItemPurchased(item.id);
+      toast(`«${item.name}» vuelve a estar disponible`, {
+        type: 'ok',
+        duration: 5000,
+        action: { label: 'Deshacer', onClick: () => undoPurchase(snapshot).catch(toastError) },
       });
+    } catch (error) {
+      toastError(error, 'No se pudo marcar como comprado.');
     }
+  }
+
+  function openItemMenu(item) {
+    openSheet({
+      title: item.name,
+      subtitle: `${item.quantity} · ${state.storesById.get(item.storeId)?.name || 'sin comercio'}`,
+      dialog: true,
+      content: (api) => h('div.menu-list',
+        menuItem('check', 'Marcar como comprado', 'Vuelve a estar disponible en el inventario', () => { api.close(); buy(item); }),
+        menuItem('pencil', 'Editar artículo', 'Cantidad, comercio y precio estimado', () => { api.close(); openShoppingItemForm(item); }),
+        item.productId ? menuItem('box', 'Ver producto', 'Ficha completa', () => { api.close(); ctx.go(`/producto/${item.productId}`); }) : null,
+        menuItem('trash', 'Quitar de la lista', 'El producto sigue marcado como agotado', async () => {
+          api.close();
+          await removeItem(item.id);
+          toastOk('Artículo eliminado de la lista');
+        }, true),
+      ),
+    });
   }
 
   function menuItem(iconName, title, hint, onClick, danger = false) {
     return h('button.menu-item', { type: 'button', onclick: onClick },
       h('span.menu-item__icon', { style: danger ? { color: 'var(--danger)' } : null, html: icon(iconName, { size: 18 }) }),
-      h('div.menu-item__body',
-        h('div.menu-item__title', title),
-        hint ? h('div.menu-item__hint', hint) : null),
+      h('div.menu-item__body', h('div.menu-item__title', title), hint ? h('div.menu-item__hint', hint) : null),
       h('span.chevron', { html: icon('chevronRight', { size: 18 }) }),
     );
+  }
+
+  /** Comparte la lista como texto (WhatsApp, correo…). */
+  async function shareList() {
+    const groups = groupByStore(items);
+    const lines = [`🛒 Lista de compras (${items.length})`, ''];
+    groups.forEach((group) => {
+      lines.push(`— ${group.storeName}`);
+      group.items.forEach((item) => {
+        const price = Number(item.estimatedPrice);
+        const estimated = isFinite(price) && price > 0 ? `  (≈ ${money(price * (Number(item.quantity) || 1))})` : '';
+        lines.push(`• ${item.quantity > 1 ? `${item.quantity} × ` : ''}${item.name}${estimated}`);
+      });
+      lines.push('');
+    });
+    if (totals.total) lines.push(`Total estimado: ${money(totals.total)}`);
+    const text = lines.join('\n');
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Lista de compras', text });
+      } else {
+        await navigator.clipboard.writeText(text);
+        toastOk('Lista copiada al portapapeles');
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toastOk('Lista copiada al portapapeles');
+      } catch (_) {
+        toastError('No se pudo compartir la lista.');
+      }
+    }
   }
 
   function openMenu() {
@@ -203,24 +225,24 @@ export function render(ctx) {
       title: 'Opciones de la lista',
       dialog: true,
       content: (api) => h('div.menu-list',
-        menuItem('calculator', 'Generar presupuesto', 'Divide la compra por comercio', () => { api.close(); ctx.go('/presupuesto'); }),
-        menuItem('refresh', 'Actualizar sugerencias', 'Recalcula precios y comercios recomendados', async () => {
+        menuItem('share', 'Compartir lista', 'Envíala por WhatsApp, correo o mensajes', () => { api.close(); shareList(); }),
+        menuItem('refresh', 'Actualizar datos', 'Recupera comercio y precio desde cada producto', async () => {
           api.close();
           try {
             const count = await refreshSuggestions();
             toastOk(`${count} artículos actualizados`);
           } catch (error) { toastError(error); }
         }),
-        menuItem('box', 'Revisar inventario', 'Agrega lo que esté agotado o bajo el mínimo', async () => {
+        menuItem('box', 'Revisar inventario', 'Agrega todo lo que esté agotado', async () => {
           api.close();
           await rebuildFromInventory();
           toastOk('Lista sincronizada con el inventario');
         }),
-        menuItem('trash', 'Vaciar lista', 'Elimina todos los artículos pendientes', async () => {
+        menuItem('trash', 'Vaciar lista', 'Los productos siguen marcados como agotados', async () => {
           api.close();
           const ok = await confirmDialog({
             title: '¿Vaciar la lista?',
-            message: 'Se quitarán todos los artículos pendientes. Los productos agotados volverán a agregarse cuando cambies su cantidad.',
+            message: 'Se quitarán todos los artículos pendientes. Los productos agotados volverán a agregarse si usas «Revisar inventario».',
             confirmText: 'Vaciar',
           });
           if (!ok) return;

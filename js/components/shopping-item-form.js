@@ -1,12 +1,11 @@
-/** Alta y edición manual de elementos de la lista de compras. */
+/** Alta y edición de artículos de la lista de compras. */
 import { h } from '../utils/dom.js';
-import { toNumber, money } from '../utils/format.js';
+import { toNumber } from '../utils/format.js';
 import { openSheet } from './ui/sheet.js';
 import { toastOk, toastError } from './ui/toast.js';
 import { field, input, numberInput, moneyInput, select, readForm, setFieldError } from './ui/form.js';
 import { state } from '../state.js';
 import { addItem, updateItem } from '../services/shopping-service.js';
-import { bestStoreFor, suggestedPrice } from '../services/price-service.js';
 import { openStoreForm } from './store-form.js';
 
 const NEW_STORE = '__new__';
@@ -25,55 +24,47 @@ export function openShoppingItemForm(item = null) {
       autocomplete: 'off',
       'data-autofocus': '',
     });
-    const datalist = h('datalist', { id: 'shopping-product-list' },
-      ...products.map((p) => h('option', { value: p.name })));
+    const datalist = h('datalist', { id: 'shopping-product-list' }, ...products.map((p) => h('option', { value: p.name })));
 
-    const quantityInput = numberInput({ name: 'quantity', value: item?.quantity ?? 1, min: '0.001' });
+    const quantityInput = numberInput({ name: 'quantity', value: item?.quantity ?? 1, min: '1', step: '1' });
     const storeSelect = select(
-      [{ value: '', label: 'Sin asignar' },
+      [{ value: '', label: 'Sin comercio' },
         ...[...state.stores].sort((a, b) => a.name.localeCompare(b.name, 'es')).map((s) => ({ value: s.id, label: s.name })),
         { value: NEW_STORE, label: '＋ Nuevo comercio…' }],
       item?.storeId || '',
       { name: 'storeId' },
     );
     const priceWrap = moneyInput(state.settings?.currency?.symbol || '$', {
-      name: 'estimatedPrice', value: item?.estimatedPrice ?? '', placeholder: '0.00',
+      name: 'estimatedPrice', value: item?.estimatedPrice ?? '', placeholder: 'Opcional',
     });
 
     storeSelect.addEventListener('change', async () => {
-      if (storeSelect.value === NEW_STORE) {
-        storeSelect.value = '';
-        const created = await openStoreForm();
-        if (created) {
-          storeSelect.insertBefore(h('option', { value: created.id }, created.name), storeSelect.options[storeSelect.options.length - 1]);
-          storeSelect.value = created.id;
-        }
-      }
-      const productId = item?.productId || state.products.find((p) => p.name.toLowerCase() === nameInput.value.trim().toLowerCase())?.id;
-      if (productId && !priceWrap.querySelector('input').value) {
-        const suggestion = suggestedPrice(productId, storeSelect.value || null);
-        if (suggestion != null) priceWrap.querySelector('input').value = suggestion;
+      if (storeSelect.value !== NEW_STORE) return;
+      storeSelect.value = item?.storeId || '';
+      const created = await openStoreForm();
+      if (created) {
+        storeSelect.insertBefore(h('option', { value: created.id }, created.name), storeSelect.options[storeSelect.options.length - 1]);
+        storeSelect.value = created.id;
       }
     });
 
+    // Al escribir un producto existente se completan comercio y precio
     nameInput.addEventListener('change', () => {
       const product = state.products.find((p) => p.name.toLowerCase() === nameInput.value.trim().toLowerCase());
       if (!product) return;
-      const best = bestStoreFor(product.id);
-      if (best && !storeSelect.value) storeSelect.value = best.storeId;
-      const suggestion = suggestedPrice(product.id, storeSelect.value || null);
+      if (!storeSelect.value && product.storeId) storeSelect.value = product.storeId;
       const priceField = priceWrap.querySelector('input');
-      if (suggestion != null && !priceField.value) priceField.value = suggestion;
+      if (!priceField.value && product.referencePrice != null) priceField.value = product.referencePrice;
     });
 
     const form = h('form', { onsubmit: (e) => e.preventDefault() },
       editing ? null : datalist,
-      field('Producto', nameInput, { required: true, hint: editing ? '' : 'Si no existe, se creará en tu inventario.' }),
+      field('Producto', nameInput, { required: true, hint: editing ? '' : 'Si no existe, se creará en tu inventario como agotado.' }),
       h('div.form-row',
         field('Cantidad', quantityInput),
         field('Comercio', storeSelect),
       ),
-      field('Precio estimado (unitario)', priceWrap, { hint: 'Se usa para calcular el presupuesto.' }),
+      field('Precio estimado', priceWrap, { hint: 'Sirve para calcular el total aproximado de la lista.' }),
     );
 
     openSheet({
@@ -92,21 +83,17 @@ export function openShoppingItemForm(item = null) {
             if (!name) { setFieldError(nameInput, 'Escribe el nombre del producto.'); return false; }
             api.setBusy(true);
             try {
+              const payload = {
+                name,
+                quantity: Math.max(1, toNumber(values.quantity, 1)),
+                storeId: values.storeId === NEW_STORE ? null : (values.storeId || null),
+                estimatedPrice: values.estimatedPrice === '' ? null : toNumber(values.estimatedPrice, 0),
+              };
               if (editing) {
-                await updateItem(item.id, {
-                  name,
-                  quantity: toNumber(values.quantity, 1),
-                  storeId: values.storeId === NEW_STORE ? null : (values.storeId || null),
-                  estimatedPrice: values.estimatedPrice === '' ? null : toNumber(values.estimatedPrice, 0),
-                });
+                await updateItem(item.id, payload);
                 toastOk('Artículo actualizado');
               } else {
-                await addItem({
-                  name,
-                  quantity: toNumber(values.quantity, 1),
-                  storeId: values.storeId === NEW_STORE ? null : (values.storeId || null),
-                  estimatedPrice: values.estimatedPrice === '' ? null : toNumber(values.estimatedPrice, 0),
-                });
+                await addItem(payload);
                 toastOk(`«${name}» agregado a la lista`);
               }
               resolved = true;
@@ -124,5 +111,3 @@ export function openShoppingItemForm(item = null) {
     });
   });
 }
-
-export { money };

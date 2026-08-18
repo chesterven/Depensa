@@ -18,12 +18,9 @@ import * as dashboard from './components/views/dashboard.js';
 import * as inventory from './components/views/inventory.js';
 import * as productDetail from './components/views/product-detail.js';
 import * as shoppingList from './components/views/shopping-list.js';
-import * as purchases from './components/views/purchases.js';
 import * as more from './components/views/more.js';
 import * as stores from './components/views/stores.js';
 import * as categories from './components/views/categories.js';
-import * as budget from './components/views/budget.js';
-import * as stats from './components/views/stats.js';
 import * as backup from './components/views/backup.js';
 import * as settingsView from './components/views/settings.js';
 import * as privacy from './components/views/privacy.js';
@@ -32,7 +29,6 @@ const NAV_ITEMS = [
   { path: '/', label: 'Inicio', iconName: 'home', key: 'home' },
   { path: '/inventario', label: 'Inventario', iconName: 'box', key: 'inventario' },
   { path: '/lista', label: 'Lista', iconName: 'list', key: 'lista', badge: true },
-  { path: '/compras', label: 'Compras', iconName: 'receipt', key: 'compras' },
   { path: '/mas', label: 'Más', iconName: 'grid', key: 'mas' },
 ];
 
@@ -41,12 +37,9 @@ const ROUTES = [
   { path: '/inventario', view: inventory.render, nav: 'inventario' },
   { path: '/producto/:id', view: productDetail.render, nav: 'inventario' },
   { path: '/lista', view: shoppingList.render, nav: 'lista' },
-  { path: '/compras', view: purchases.render, nav: 'compras' },
   { path: '/mas', view: more.render, nav: 'mas' },
   { path: '/comercios', view: stores.render, nav: 'mas' },
   { path: '/categorias', view: categories.render, nav: 'mas' },
-  { path: '/presupuesto', view: budget.render, nav: 'mas' },
-  { path: '/estadisticas', view: stats.render, nav: 'mas' },
   { path: '/respaldo', view: backup.render, nav: 'mas' },
   { path: '/ajustes', view: settingsView.render, nav: 'mas' },
   { path: '/privacidad', view: privacy.render, nav: 'mas' },

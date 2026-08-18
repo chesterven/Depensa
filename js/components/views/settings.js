@@ -76,18 +76,12 @@ export function render(ctx) {
     h('div.card-head', h('h3', 'Comportamiento')),
     switchRow({
       title: 'Lista de compras automática',
-      hint: 'Agrega productos agotados o bajo el mínimo',
+      hint: 'Agrega a la lista los productos que marques como agotados',
       checked: settings.autoAddToList !== false,
       onChange: async (value) => {
         await save({ autoAddToList: value });
         if (value) await rebuildFromInventory();
       },
-    }),
-    switchRow({
-      title: 'Avisos de existencias bajas',
-      hint: 'Resalta los productos por comprar en el inicio',
-      checked: settings.lowStockAlerts !== false,
-      onChange: (value) => save({ lowStockAlerts: value }),
     }),
   ));
 

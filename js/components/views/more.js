@@ -1,12 +1,12 @@
 /** Sección «Más»: accesos, apariencia, instalación y datos de demostración. */
 import { h } from '../../utils/dom.js';
 import { icon } from '../../utils/icons.js';
-import { plural, money } from '../../utils/format.js';
+import { plural } from '../../utils/format.js';
 import { formatRelative } from '../../utils/date.js';
 import { state } from '../../state.js';
 import { THEMES, getTheme, setTheme } from '../../theme.js';
 import { canInstall, promptInstall, isIOS, isStandalone, onInstallAvailability } from '../../install.js';
-import { expenseSummary } from '../../services/stats-service.js';
+import { inventorySummary } from '../../services/inventory-service.js';
 import { loadDemoData, removeDemoData } from '../../services/demo-data.js';
 import { openSheet } from '../ui/sheet.js';
 import { confirmDialog } from '../ui/confirm.js';
@@ -19,7 +19,7 @@ export function render(ctx) {
   ctx.onCleanup(onInstallAvailability(() => ctx.refresh()));
 
   const root = h('div');
-  const summary = expenseSummary(state.purchases);
+  const summary = inventorySummary(state.products);
   const demoLoaded = state.products.some((product) => product.demo);
 
   root.appendChild(h('div.card',
@@ -27,15 +27,13 @@ export function render(ctx) {
       h('div.thumb.thumb--lg', { html: icon('jar', { size: 26 }) }),
       h('div.grow',
         h('h2', state.settings?.householdName || 'Mi hogar'),
-        h('div.muted.small', `${plural(state.products.length, 'producto')} · ${plural(state.purchases.length, 'compra')} · ${money(summary.total)} registrados`),
+        h('div.muted.small', `${plural(summary.total, 'producto')} · ${summary.available} con existencia · ${summary.out} agotados`),
       ),
     ),
   ));
 
   root.appendChild(h('div.card.mt-2',
     h('div.menu-list',
-      menu('calculator', 'Presupuesto de compras', 'Divide tu compra por comercio', () => ctx.go('/presupuesto')),
-      menu('chart', 'Gastos y estadísticas', 'Por mes, categoría y comercio', () => ctx.go('/estadisticas')),
       menu('store', 'Comercios', plural(state.stores.length, 'comercio'), () => ctx.go('/comercios')),
       menu('tag', 'Categorías', plural(state.categories.length, 'categoría', 'categorías'), () => ctx.go('/categorias')),
     ),

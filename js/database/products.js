@@ -2,31 +2,31 @@
 import { STORE, getAll, get, put, remove, bulkPut, removeMany } from './database.js';
 import { uuid, nowIso } from '../utils/id.js';
 
-export const UNITS = [
+/** Estados posibles de un producto. */
+export const STATUS = { AVAILABLE: 'available', OUT: 'out' };
+
+/** Sugerencias de presentación (el campo es de texto libre). */
+export const UNIT_SUGGESTIONS = [
   'unidad', 'paquete', 'bolsa', 'caja', 'botella', 'lata', 'frasco',
-  'libra', 'kilogramo', 'gramo', 'litro', 'mililitro', 'docena', 'rollo', 'par',
+  '1 libra', '1 kilo', '1 litro', 'docena', 'rollo', 'par',
 ];
 
 /** Crea un producto con todos los campos del esquema y sus valores por defecto. */
 export function createProduct(data = {}) {
   const ts = nowIso();
+  const status = data.status === STATUS.OUT ? STATUS.OUT : STATUS.AVAILABLE;
+  const price = data.referencePrice;
   return {
     id: data.id || uuid(),
     name: (data.name || '').trim(),
     categoryId: data.categoryId || null,
-    unit: data.unit || 'unidad',
-    currentQuantity: Number(data.currentQuantity) || 0,
-    minimumQuantity: Number(data.minimumQuantity) || 0,
+    storeId: data.storeId || null,          // comercio donde se compra habitualmente
+    unit: (data.unit || '').trim(),         // presentación: «1 litro», «bolsa de 5 lb»…
+    status,
+    referencePrice: price === '' || price == null || !isFinite(Number(price)) ? null : Number(price),
     notes: data.notes || '',
     hasPhoto: !!data.hasPhoto,
-    // Estadísticas denormalizadas (se recalculan desde el historial en cada compra)
-    lastPurchaseDate: data.lastPurchaseDate || null,
-    lastStoreId: data.lastStoreId || null,
-    lastPrice: data.lastPrice ?? null,
-    avgPrice: data.avgPrice ?? null,
-    minPrice: data.minPrice ?? null,
-    maxPrice: data.maxPrice ?? null,
-    purchaseCount: Number(data.purchaseCount) || 0,
+    lastPurchasedAt: data.lastPurchasedAt || null,
     createdAt: data.createdAt || ts,
     updatedAt: data.updatedAt || ts,
     // Marca los registros de demostración para poder eliminarlos por separado
@@ -44,7 +44,7 @@ export async function saveProduct(data) {
   return record;
 }
 
-/** Guarda sin normalizar (usado por importación y recálculos internos). */
+/** Guarda sin normalizar (usado por importación y ajustes internos). */
 export async function putProduct(record) {
   await put(STORE.PRODUCTS, record);
   return record;

@@ -4,7 +4,6 @@
  * luego refrescan el estado; las vistas se suscriben y se vuelven a dibujar.
  */
 import * as productsDb from './database/products.js';
-import * as purchasesDb from './database/purchases.js';
 import * as storesDb from './database/stores.js';
 import * as categoriesDb from './database/categories.js';
 import * as listDb from './database/shopping-list.js';
@@ -14,7 +13,6 @@ import { setCurrency } from './utils/format.js';
 export const state = {
   ready: false,
   products: [],
-  purchases: [],
   stores: [],
   categories: [],
   shoppingList: [],
@@ -23,7 +21,6 @@ export const state = {
   productsById: new Map(),
   storesById: new Map(),
   categoriesById: new Map(),
-  purchasesByProduct: new Map(),
 };
 
 const listeners = new Set();
@@ -46,21 +43,10 @@ function reindex() {
   state.productsById = new Map(state.products.map((p) => [p.id, p]));
   state.storesById = new Map(state.stores.map((s) => [s.id, s]));
   state.categoriesById = new Map(state.categories.map((c) => [c.id, c]));
-  const byProduct = new Map();
-  for (const purchase of state.purchases) {
-    if (!purchase.productId) continue;
-    if (!byProduct.has(purchase.productId)) byProduct.set(purchase.productId, []);
-    byProduct.get(purchase.productId).push(purchase);
-  }
-  for (const list of byProduct.values()) {
-    list.sort((a, b) => String(a.purchaseDate).localeCompare(String(b.purchaseDate)));
-  }
-  state.purchasesByProduct = byProduct;
 }
 
 const LOADERS = {
   products: () => productsDb.listProducts(),
-  purchases: () => purchasesDb.listPurchases(),
   stores: () => storesDb.listStores(),
   categories: () => categoriesDb.listCategories(),
   shoppingList: () => listDb.listShoppingItems(),
@@ -105,12 +91,12 @@ export function productName(id, fallback = 'Producto eliminado') {
   return state.productsById.get(id)?.name || fallback;
 }
 
-/** Compras de un producto, de la más antigua a la más reciente. */
-export function purchasesOf(productId) {
-  return state.purchasesByProduct.get(productId) || [];
-}
-
 /** Elementos pendientes de la lista de compras. */
 export function pendingItems() {
   return state.shoppingList.filter((item) => item.status === 'pending');
+}
+
+/** ¿El producto ya está en la lista de compras? */
+export function isInList(productId) {
+  return state.shoppingList.some((item) => item.productId === productId && item.status === 'pending');
 }

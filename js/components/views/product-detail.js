@@ -1,21 +1,24 @@
-/** Ficha del producto: estado, precios, comparación de comercios e historial. */
+/** Ficha del producto: estado, comercio habitual y precio de referencia. */
 import { h, haptic } from '../../utils/dom.js';
 import { icon } from '../../utils/icons.js';
-import { money, moneyOrDash, qty as fmtQty, percent, initials, toNumber } from '../../utils/format.js';
+import { money, moneyOrDash, initials } from '../../utils/format.js';
 import { formatDate, formatRelative } from '../../utils/date.js';
-import { state } from '../../state.js';
+import { state, isInList } from '../../state.js';
 import { getPhoto } from '../../database/photos.js';
-import { statusOf, STATUS, STATUS_LABEL, adjustQuantity, setQuantity, markAsOut, deleteProduct } from '../../services/inventory-service.js';
-import { productPriceStats, statsByStoreFor, priceSeries } from '../../services/price-service.js';
-import { addItem } from '../../services/shopping-service.js';
-import { deletePurchase } from '../../services/purchase-service.js';
-import { sparkline } from '../ui/chart.js';
+import {
+  isOut, markAsOut, markAsPurchased, deleteProduct, setStore,
+  restoreProductState, snapshotProduct,
+} from '../../services/inventory-service.js';
+import { addItem, removeItem } from '../../services/shopping-service.js';
 import { emptyState } from '../ui/empty.js';
 import { openSheet } from '../ui/sheet.js';
 import { confirmDialog } from '../ui/confirm.js';
-import { toastOk, toastError } from '../ui/toast.js';
+import { toast, toastOk, toastError } from '../ui/toast.js';
 import { openProductForm } from '../product-form.js';
-import { openPurchaseForm } from '../purchase-form.js';
+import { openStoreForm } from '../store-form.js';
+import { select } from '../ui/form.js';
+
+const NEW_STORE = '__new__';
 
 export function render(ctx) {
   const product = state.productsById.get(ctx.params.id);
@@ -41,222 +44,146 @@ export function render(ctx) {
   });
   ctx.onState(() => ctx.refresh());
 
-  const status = statusOf(product);
-  const statusKey = status === STATUS.OK ? 'ok' : status === STATUS.LOW ? 'low' : 'out';
-  const stats = productPriceStats(product.id);
-  const storeRows = statsByStoreFor(product.id);
-  const purchases = [...(state.purchasesByProduct.get(product.id) || [])].reverse();
+  const out = isOut(product);
+  const inList = isInList(product.id);
   const root = h('div');
 
   /* ---- Encabezado ---- */
-  const thumb = h('div', { class: `thumb thumb--lg thumb--${statusKey}` }, initials(product.name));
+  const thumb = h('div', { class: `thumb thumb--lg thumb--${out ? 'out' : 'ok'}` }, initials(product.name));
   if (product.hasPhoto) {
     getPhoto(product.id).then((photo) => {
       if (photo?.dataUrl) thumb.replaceChildren(h('img', { src: photo.dataUrl, alt: `Foto de ${product.name}` }));
     }).catch(() => {});
   }
 
-  const quantityInput = h('input.stepper__value', {
-    type: 'number',
-    step: 'any',
-    min: '0',
-    value: product.currentQuantity,
-    'aria-label': 'Cantidad disponible',
-    'data-keep-focus': 'qty',
-    onchange: async (event) => {
-      try { await setQuantity(product.id, toNumber(event.target.value, 0)); } catch (error) { toastError(error); }
-    },
-  });
-
   root.appendChild(h('div.card',
     h('div.row', { style: { gap: '14px', alignItems: 'flex-start' } },
       thumb,
       h('div.grow',
-        h('h2', { style: { marginBottom: '4px' } }, product.name),
+        h('h2', { style: { marginBottom: '6px' } }, product.name),
         h('div.row.row--wrap', { style: { gap: '6px' } },
-          h('span', { class: `badge badge--${statusKey}` }, STATUS_LABEL[status]),
-          h('span.badge.badge--done', product.unit),
-          product.minimumQuantity ? h('span.badge.badge--done', `mín. ${fmtQty(product.minimumQuantity)}`) : null,
+          h('span', { class: `badge badge--${out ? 'out' : 'ok'}` }, out ? 'Agotado' : 'Con existencia'),
+          product.unit ? h('span.badge.badge--done', product.unit) : null,
+          inList ? h('span.badge.badge--info', 'En la lista') : null,
         ),
         product.notes ? h('p.muted.small', { style: { marginTop: '8px', marginBottom: 0 } }, product.notes) : null,
       ),
     ),
-    h('div.mt-2',
-      h('div.row.row--between', { style: { gap: '12px', flexWrap: 'wrap' } },
-        h('div.muted.small', 'Cantidad disponible'),
-        product.lastPurchaseDate
-          ? h('div.muted.small.text-right', `Última compra ${formatRelative(product.lastPurchaseDate)}`,
-            state.storesById.get(product.lastStoreId)?.name ? ` · ${state.storesById.get(product.lastStoreId).name}` : '')
-          : null,
-      ),
-      h('div',
-        h('div.stepper', { style: { marginTop: '6px' } },
-          h('button', {
-            type: 'button', 'aria-label': 'Quitar uno',
-            disabled: Number(product.currentQuantity) <= 0,
-            html: icon('minus', { size: 18 }),
-            onclick: async () => { haptic(); await adjustQuantity(product.id, -1); },
-          }),
-          quantityInput,
-          h('button', {
-            type: 'button', 'aria-label': 'Agregar uno',
-            html: icon('plus', { size: 18 }),
-            onclick: async () => { haptic(); await adjustQuantity(product.id, 1); },
-          }),
-        ),
-      ),
-    ),
     h('div.row.mt-2', { style: { gap: '8px' } },
-      h('button.btn.btn-primary.grow', {
-        type: 'button',
-        onclick: () => openPurchaseForm({ productId: product.id }),
-      }, h('span', { html: icon('cart', { size: 18 }) }), 'Registrar compra'),
-      status === STATUS.OK
-        ? h('button.btn.btn-soft', {
-          type: 'button',
-          onclick: async () => {
-            await markAsOut(product.id);
-            toastOk('Marcado como agotado y agregado a la lista');
-          },
-        }, 'Marcar agotado')
-        : h('button.btn.btn-soft', {
-          type: 'button',
-          onclick: async () => {
-            await addItem({ productId: product.id, name: product.name, quantity: 1 });
-            toastOk('Agregado a la lista de compras');
-          },
-        }, h('span', { html: icon('list', { size: 18 }) }), 'A la lista'),
+      out
+        ? h('button.btn.btn-primary.grow', { type: 'button', onclick: () => setStatus(false) },
+          h('span', { html: icon('check', { size: 18 }) }), 'Ya lo compré')
+        : h('button.btn.btn-primary.grow', { type: 'button', onclick: () => setStatus(true) },
+          h('span', { html: icon('cart', { size: 18 }) }), 'Marcar agotado'),
+      inList
+        ? h('button.btn.btn-soft', { type: 'button', onclick: () => leaveList() },
+          h('span', { html: icon('close', { size: 18 }) }), 'Quitar de la lista')
+        : h('button.btn.btn-soft', { type: 'button', onclick: () => joinList() },
+          h('span', { html: icon('list', { size: 18 }) }), 'A la lista'),
     ),
   ));
 
-  /* ---- Estadísticas de precio ---- */
-  const priceSection = h('div.section',
-    h('div.section-title', h('span', { html: icon('chart', { size: 19 }) }), 'Precios'));
-
-  if (!stats.count) {
-    priceSection.appendChild(h('div.card', h('div.muted.small',
-      'Aún no hay compras registradas de este producto. Registra una compra para calcular el precio promedio.')));
-  } else {
-    priceSection.appendChild(h('div.stat-grid',
-      miniStat('Promedio', money(stats.avg), 'stat--accent'),
-      miniStat('Último', money(stats.last), ''),
-      miniStat('Mínimo', moneyOrDash(stats.min), ''),
-      miniStat('Máximo', moneyOrDash(stats.max), ''),
-    ));
-
-    if (stats.variation != null) {
-      const up = stats.variation > 0;
-      priceSection.appendChild(h('div', { class: `notice ${up ? '' : 'notice--ok'} mt-2` },
-        h('span', { html: icon(up ? 'trendingUp' : 'trendingDown', { size: 18 }) }),
-        h('span.grow', up
-          ? `El precio subió ${percent(stats.variation)} respecto a la compra anterior.`
-          : `El precio bajó ${percent(Math.abs(stats.variation))} respecto a la compra anterior.`),
-      ));
-    }
-
-    const series = priceSeries(product.id);
-    if (series.length >= 3) {
-      priceSection.appendChild(h('div.card.mt-2',
-        h('div.card-head', h('h3', 'Evolución del precio'), h('span.muted.small', `${series.length} compras`)),
-        sparkline(series),
-      ));
-    }
-  }
-  root.appendChild(priceSection);
-
-  /* ---- Comparación entre comercios ---- */
-  if (storeRows.length) {
-    const table = h('table.table',
-      h('thead', h('tr',
-        h('th', 'Comercio'),
-        h('th', 'Último'),
-        h('th', 'Promedio'),
-      )),
-      h('tbody', ...storeRows.map((row, index) => h('tr', { class: index === 0 && storeRows.length > 1 ? 'is-best' : '' },
-        h('td', row.storeName, index === 0 && storeRows.length > 1
-          ? h('span.badge.badge--ok', { style: { marginLeft: '6px' } }, 'más barato') : null),
-        h('td.num', moneyOrDash(row.last)),
-        h('td.num', moneyOrDash(row.avg)),
-      ))),
-    );
-    root.appendChild(h('div.section',
-      h('div.section-title', h('span', { html: icon('store', { size: 19 }) }), 'Dónde comprarlo'),
-      h('div.card', table,
-        storeRows.length > 1 && storeRows[0].avg != null
-          ? h('div.notice.notice--ok.mt-2',
-            h('span', { html: icon('star', { size: 18 }) }),
-            h('span.grow', `Recomendado: ${storeRows[0].storeName} — ${money(storeRows[0].avg)} en promedio.`))
-          : null,
-      ),
-    ));
-  }
-
-  /* ---- Historial ---- */
-  const historySection = h('div.section',
-    h('div.section-title', h('span', { html: icon('receipt', { size: 19 }) }), 'Historial de compras',
-      h('span.count', purchases.length ? `${purchases.length}` : '')));
-  if (!purchases.length) {
-    historySection.appendChild(h('div.card', h('div.muted.small', 'Sin compras registradas.')));
-  } else {
-    const list = h('div.list');
-    purchases.forEach((purchase) => {
-      list.appendChild(h('button.tile', {
-        type: 'button',
-        onclick: () => openPurchaseActions(purchase),
-      },
-      h('div.thumb', { html: icon('cart', { size: 18 }) }),
-      h('div.tile__body',
-        h('div.tile__title', purchase.storeName || state.storesById.get(purchase.storeId)?.name || 'Sin comercio'),
-        h('div.tile__meta', formatDate(purchase.purchaseDate), ' · ', `${fmtQty(purchase.quantity)} × ${money(purchase.unitPrice)}`),
-      ),
-      h('div.tile__right', h('div.tile__price', money(purchase.totalPrice))),
-      ));
-    });
-    historySection.appendChild(list);
-  }
-  root.appendChild(historySection);
+  /* ---- Detalles ---- */
+  root.appendChild(h('div.card.mt-2',
+    h('div.card-head', h('h3', 'Detalles')),
+    infoRow('store', 'Comercio', state.storesById.get(product.storeId)?.name || 'Sin asignar', () => openStorePicker()),
+    infoRow('calculator', 'Precio de referencia', moneyOrDash(product.referencePrice), () => openProductForm(product)),
+    infoRow('tag', 'Categoría', state.categoriesById.get(product.categoryId)?.name || 'Sin categoría', () => openProductForm(product)),
+    infoRow('clock', 'Última vez comprado', product.lastPurchasedAt ? formatRelative(product.lastPurchasedAt) : 'Sin registro'),
+    infoRow('calendar', 'Agregado', formatDate(product.createdAt)),
+  ));
 
   return root;
 
-  function miniStat(label, value, variant) {
-    return h('div', { class: `stat ${variant}` },
-      h('div.stat__label', label),
-      h('div.stat__value', { style: { fontSize: '1.3rem' } }, value));
+  function infoRow(iconName, label, value, onClick = null) {
+    const content = h('div.row', { style: { gap: '12px', padding: '11px 0', borderTop: '1px solid var(--line)' } },
+      h('span.menu-item__icon', { style: { width: '34px', height: '34px' }, html: icon(iconName, { size: 17 }) }),
+      h('div.grow', h('div.muted.small', label), h('div', { style: { fontWeight: 600 } }, value)),
+      onClick ? h('span.chevron.muted', { html: icon('chevronRight', { size: 18 }) }) : null,
+    );
+    if (!onClick) return content;
+    return h('button', {
+      type: 'button',
+      style: { display: 'block', width: '100%', background: 'transparent', border: 0, padding: 0, textAlign: 'left' },
+      onclick: onClick,
+    }, content);
   }
 
-  function openPurchaseActions(purchase) {
+  async function setStatus(out_) {
+    haptic();
+    const previous = snapshotProduct(product);
+    try {
+      if (out_) {
+        await markAsOut(product.id);
+        toast('Pasó a la lista de compras', {
+          type: 'warn',
+          action: { label: 'Deshacer', onClick: () => restoreProductState(previous).catch(toastError) },
+        });
+      } else {
+        await markAsPurchased(product.id);
+        toast('Vuelve a estar disponible', {
+          type: 'ok',
+          action: { label: 'Deshacer', onClick: () => restoreProductState(previous).catch(toastError) },
+        });
+      }
+    } catch (error) {
+      toastError(error);
+    }
+  }
+
+  async function joinList() {
+    try {
+      await addItem({ productId: product.id, name: product.name, quantity: 1, storeId: product.storeId, estimatedPrice: product.referencePrice });
+      toastOk('Agregado a la lista de compras');
+    } catch (error) { toastError(error); }
+  }
+
+  async function leaveList() {
+    const item = state.shoppingList.find((i) => i.productId === product.id && i.status === 'pending');
+    if (!item) return;
+    try {
+      await removeItem(item.id);
+      toastOk('Quitado de la lista');
+    } catch (error) { toastError(error); }
+  }
+
+  function openStorePicker() {
+    const storeSelect = select(
+      [{ value: '', label: 'Sin comercio' },
+        ...[...state.stores].sort((a, b) => a.name.localeCompare(b.name, 'es')).map((s) => ({ value: s.id, label: s.name })),
+        { value: NEW_STORE, label: '＋ Nuevo comercio…' }],
+      product.storeId || '', {},
+    );
+    storeSelect.addEventListener('change', async () => {
+      if (storeSelect.value !== NEW_STORE) return;
+      storeSelect.value = product.storeId || '';
+      const created = await openStoreForm();
+      if (created) {
+        storeSelect.insertBefore(h('option', { value: created.id }, created.name), storeSelect.options[storeSelect.options.length - 1]);
+        storeSelect.value = created.id;
+      }
+    });
+
     openSheet({
-      title: 'Compra registrada',
-      subtitle: `${formatDate(purchase.purchaseDate)} · ${money(purchase.totalPrice)}`,
-      dialog: true,
-      content: (api) => h('div.menu-list',
-        h('button.menu-item', {
-          type: 'button',
-          onclick: () => { api.close(); openPurchaseForm({ purchase }); },
-        },
-        h('span.menu-item__icon', { html: icon('pencil', { size: 18 }) }),
-        h('div.menu-item__body', h('div.menu-item__title', 'Editar compra'),
-          h('div.menu-item__hint', 'No modifica la cantidad del inventario')),
-        ),
-        h('button.menu-item', {
-          type: 'button',
-          onclick: async () => {
-            api.close();
-            const ok = await confirmDialog({
-              title: 'Eliminar del historial',
-              message: 'Se eliminará este registro y se recalcularán los promedios. El inventario no cambiará.',
-            });
-            if (!ok) return;
+      title: 'Comercio habitual',
+      subtitle: `¿Dónde compras «${product.name}»?`,
+      content: h('div',
+        h('div.field', h('label.field__label', 'Comercio'), storeSelect),
+        h('div.field__hint', 'Se usará para agrupar la lista de compras por comercio.'),
+      ),
+      actions: [
+        { label: 'Cancelar', variant: 'btn-soft', onClick: () => {} },
+        {
+          label: 'Guardar',
+          variant: 'btn-primary',
+          onClick: async () => {
             try {
-              await deletePurchase(purchase.id);
-              toastOk('Compra eliminada del historial');
+              await setStore(product.id, storeSelect.value === NEW_STORE ? product.storeId : storeSelect.value);
+              toastOk('Comercio actualizado');
             } catch (error) { toastError(error); }
           },
         },
-        h('span.menu-item__icon', { style: { color: 'var(--danger)' }, html: icon('trash', { size: 18 }) }),
-        h('div.menu-item__body', h('div.menu-item__title', 'Eliminar del historial')),
-        ),
-      ),
+      ],
     });
   }
 
@@ -264,7 +191,6 @@ export function render(ctx) {
     const ok = await confirmDialog({
       title: `¿Eliminar «${product.name}»?`,
       message: 'El producto saldrá del inventario y de la lista de compras.',
-      detail: 'Su historial de compras se conserva para no perder las estadísticas de gasto.',
     });
     if (!ok) return;
     try {

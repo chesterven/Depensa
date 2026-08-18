@@ -6,11 +6,10 @@
  */
 
 export const DB_NAME = 'despensa-hogar';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export const STORE = {
   PRODUCTS: 'products',
-  PURCHASES: 'purchases',
   STORES: 'stores',
   CATEGORIES: 'categories',
   SHOPPING_LIST: 'shoppingList',
@@ -22,19 +21,15 @@ let dbPromise = null;
 
 /**
  * Migraciones incrementales. Cada bloque se ejecuta solo si la base venía de una versión anterior.
- * Para la versión 2 en adelante basta con añadir `if (oldVersion < 2) { ... }`.
+ * Para la versión 3 en adelante basta con añadir `if (oldVersion < 3) { ... }`.
  */
 function migrate(db, oldVersion, transaction) {
+  /* ---- v1: esquema inicial ---- */
   if (oldVersion < 1) {
     const products = db.createObjectStore(STORE.PRODUCTS, { keyPath: 'id' });
     products.createIndex('name', 'name', { unique: false });
     products.createIndex('categoryId', 'categoryId', { unique: false });
     products.createIndex('updatedAt', 'updatedAt', { unique: false });
-
-    const purchases = db.createObjectStore(STORE.PURCHASES, { keyPath: 'id' });
-    purchases.createIndex('productId', 'productId', { unique: false });
-    purchases.createIndex('storeId', 'storeId', { unique: false });
-    purchases.createIndex('purchaseDate', 'purchaseDate', { unique: false });
 
     const stores = db.createObjectStore(STORE.STORES, { keyPath: 'id' });
     stores.createIndex('name', 'name', { unique: false });
@@ -49,8 +44,70 @@ function migrate(db, oldVersion, transaction) {
     db.createObjectStore(STORE.SETTINGS, { keyPath: 'key' });
     db.createObjectStore(STORE.PHOTOS, { keyPath: 'id' });
   }
-  // if (oldVersion < 2) { ...futuras migraciones, usando `transaction` para leer/escribir... }
-  void transaction;
+
+  /**
+   * ---- v2: se elimina el registro de compras ----
+   * El producto pasa a tener estado (disponible / agotado), comercio habitual y
+   * precio de referencia. Los datos existentes se convierten sin pérdida de productos.
+   */
+  if (oldVersion < 2) {
+    const products = transaction.objectStore(STORE.PRODUCTS);
+    if (!products.indexNames.contains('storeId')) products.createIndex('storeId', 'storeId', { unique: false });
+    if (!products.indexNames.contains('status')) products.createIndex('status', 'status', { unique: false });
+
+    if (oldVersion >= 1) {
+      const dropPurchases = () => {
+        if (db.objectStoreNames.contains('purchases')) db.deleteObjectStore('purchases');
+      };
+
+      // Convierte cada producto usando, si existe, la última compra registrada
+      const convertProducts = (lastPurchases) => {
+        const cursorRequest = products.openCursor();
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) { dropPurchases(); return; }
+          const product = cursor.value;
+          const previous = lastPurchases.get(product.id);
+          const quantity = Number(product.currentQuantity);
+          cursor.update({
+            id: product.id,
+            name: product.name,
+            categoryId: product.categoryId || null,
+            storeId: product.storeId || product.lastStoreId || previous?.storeId || null,
+            unit: product.unit || '',
+            status: isFinite(quantity) && quantity > 0 ? 'available' : 'out',
+            referencePrice: product.referencePrice ?? product.avgPrice ?? product.lastPrice ?? previous?.unitPrice ?? null,
+            notes: product.notes || '',
+            hasPhoto: !!product.hasPhoto,
+            lastPurchasedAt: product.lastPurchasedAt || product.lastPurchaseDate || null,
+            createdAt: product.createdAt,
+            updatedAt: product.updatedAt,
+            ...(product.demo ? { demo: true } : {}),
+          });
+          cursor.continue();
+        };
+      };
+
+      if (db.objectStoreNames.contains('purchases')) {
+        const request = transaction.objectStore('purchases').getAll();
+        request.onsuccess = () => {
+          const lastPurchases = new Map();
+          for (const purchase of request.result || []) {
+            const current = lastPurchases.get(purchase.productId);
+            if (!current || String(purchase.purchaseDate) > String(current.purchaseDate)) {
+              lastPurchases.set(purchase.productId, purchase);
+            }
+          }
+          convertProducts(lastPurchases);
+        };
+      } else {
+        convertProducts(new Map());
+      }
+
+      // El presupuesto guardado pertenecía al módulo de compras
+      transaction.objectStore(STORE.SETTINGS).delete('budget');
+    }
+  }
 }
 
 /** Abre (una sola vez) la base de datos. */

@@ -6,7 +6,7 @@ export function render(ctx) {
   ctx.setHeader({ title: 'Privacidad', subtitle: 'Cómo se guardan tus datos', back: true });
 
   const points = [
-    ['database', 'Todo se guarda en este dispositivo', 'Los productos, compras, comercios y listas se almacenan en IndexedDB, dentro de tu navegador. Nada sale de aquí a menos que tú exportes el archivo.'],
+    ['database', 'Todo se guarda en este dispositivo', 'Los productos, comercios y listas se almacenan en IndexedDB, dentro de tu navegador. Nada sale de aquí a menos que tú exportes el archivo.'],
     ['wifiOff', 'Funciona sin conexión', 'Después de la primera carga, la aplicación funciona completamente sin Internet.'],
     ['shield', 'Sin cuentas ni contraseñas', 'No hay registro, inicio de sesión ni identificadores de usuario.'],
     ['eye', 'Sin analítica ni publicidad', 'No se usan cookies de seguimiento, estadísticas externas ni anuncios.'],
