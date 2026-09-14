@@ -13,6 +13,6 @@
  * la dan las políticas RLS del archivo supabase/schema.sql.
  */
 window.DESPENSA_CONFIG = {
-  supabaseUrl: 'https://supabase.com/dashboard/project/ypmpysgwytpsobzbrgbd',
+  supabaseUrl: 'https://ypmpysgwytpsobzbrgbd.supabase.co',
   supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwbXB5c2d3eXRwc29iemJyZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0MTMzMjgsImV4cCI6MjEwNDk4OTMyOH0.GUor9HFxJm33StjD7_fUA_sILZ8g-0NOk5IhoBZiMos',
 };
