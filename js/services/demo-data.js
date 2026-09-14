@@ -1,100 +1,74 @@
-/**
- * Datos de demostración.
- * Todos los registros quedan marcados con `demo: true` para poder eliminarlos
- * con un solo toque sin tocar la información real del usuario.
- */
-import * as productsDb from '../database/products.js';
-import * as storesDb from '../database/stores.js';
-import * as listDb from '../database/shopping-list.js';
-import { ensureDefaultCategories, listCategories } from '../database/categories.js';
-import { saveAppSettings } from '../database/settings.js';
-import { state, refresh } from '../state.js';
-import { syncShoppingForProduct, STATUS } from './inventory-service.js';
+/** Productos de ejemplo para ver la app funcionando. */
+import { state, refreshProducts } from '../state.js';
+import { createProducts } from '../api/products.js';
+import { createStores, listStores } from '../api/catalog.js';
+import { setCatalogLocal } from '../state.js';
 import { normalize } from '../utils/format.js';
+import { todayKey } from '../utils/date.js';
 
-const DEMO_STORES = [
-  { name: 'Supermercado A', address: 'Boulevard principal', notes: 'Mejores precios en lácteos y limpieza.' },
-  { name: 'Supermercado B', address: 'Centro comercial', notes: '' },
-  { name: 'Tienda local', address: 'A la vuelta de casa', notes: 'Para emergencias.' },
-  { name: 'Mercado', address: 'Mercado municipal', notes: 'Frutas, verduras y granos.' },
+const STORES = ['Supermercado A', 'Mercado', 'Farmacia'];
+
+/** days: null = sin fecha · número = vence en tantos días */
+const PRODUCTS = [
+  { name: 'Leche entera', category: 'Alimentos', unit: '1 litro', store: 0, price: 1.30, days: 6, inStock: true },
+  { name: 'Huevos', category: 'Alimentos', unit: 'docena', store: 1, price: 3.10, days: 20, inStock: true },
+  { name: 'Arroz', category: 'Alimentos', unit: '1 libra', store: 1, price: 0.95, days: 300, inStock: true },
+  { name: 'Frijoles', category: 'Alimentos', unit: '1 libra', store: 1, price: 1.25, days: null, inStock: false },
+  { name: 'Yogur', category: 'Alimentos', unit: 'vaso', store: 0, price: 0.80, days: -2, inStock: true },
+  { name: 'Café', category: 'Bebidas', unit: 'paquete', store: 0, price: 4.60, days: 120, inStock: false },
+  { name: 'Jugo de naranja', category: 'Bebidas', unit: '1 litro', store: 0, price: 2.10, days: 3, inStock: true },
+  { name: 'Acetaminofén', category: 'Medicina', unit: 'caja de 20', store: 2, price: 2.50, days: 400, inStock: true },
+  { name: 'Alcohol gel', category: 'Medicina', unit: 'botella', store: 2, price: 3.00, days: null, inStock: true },
+  { name: 'Detergente', category: 'Aseo del hogar', unit: 'bolsa', store: 0, price: 5.40, days: null, inStock: false },
+  { name: 'Cloro', category: 'Aseo del hogar', unit: '1 galón', store: 0, price: 2.20, days: null, inStock: true },
+  { name: 'Papel higiénico', category: 'Aseo del hogar', unit: 'paquete de 4', store: 0, price: 6.50, days: null, inStock: true },
+  { name: 'Pasta dental', category: 'Aseo personal', unit: 'unidad', store: 0, price: 2.40, days: null, inStock: true },
+  { name: 'Shampoo', category: 'Aseo personal', unit: 'botella', store: 0, price: 4.90, days: null, inStock: false },
+  { name: 'Jabón de baño', category: 'Aseo personal', unit: 'pastilla', store: 1, price: 0.90, days: null, inStock: true },
 ];
 
-/** store: índice dentro de DEMO_STORES · out: empieza agotado */
-const DEMO_PRODUCTS = [
-  { name: 'Arroz', category: 'Alimentos', unit: '1 libra', store: 3, price: 0.95 },
-  { name: 'Frijoles', category: 'Alimentos', unit: '1 libra', store: 3, price: 1.25 },
-  { name: 'Leche entera', category: 'Alimentos', unit: '1 litro', store: 0, price: 1.30, out: true },
-  { name: 'Huevos', category: 'Alimentos', unit: 'docena', store: 3, price: 3.10 },
-  { name: 'Café', category: 'Bebidas', unit: 'paquete', store: 1, price: 4.60, out: true },
-  { name: 'Azúcar', category: 'Alimentos', unit: '1 libra', store: 3, price: 0.85 },
-  { name: 'Papel higiénico', category: 'Higiene personal', unit: 'paquete de 4', store: 1, price: 6.50 },
-  { name: 'Detergente', category: 'Limpieza', unit: 'bolsa', store: 0, price: 5.40, out: true },
-  { name: 'Pasta dental', category: 'Higiene personal', unit: 'unidad', store: 0, price: 2.40 },
-  { name: 'Shampoo', category: 'Higiene personal', unit: 'botella', store: 1, price: 4.90 },
-];
-
-export async function isDemoLoaded() {
-  const products = await productsDb.listProducts();
-  return products.some((product) => product.demo);
+function dateIn(days) {
+  if (days == null) return null;
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return todayKey(date);
 }
 
-/** Carga productos y comercios de ejemplo. */
-export async function loadDemoData() {
-  await ensureDefaultCategories();
-  const categories = await listCategories();
-  const categoryByName = new Map(categories.map((c) => [normalize(c.name), c]));
+export async function loadDemo() {
+  const household = state.household;
+  if (!household) throw new Error('Primero inicia sesión.');
 
-  const stores = [];
-  for (const data of DEMO_STORES) {
-    stores.push(await storesDb.saveStore({ ...data, demo: true }));
+  // Comercios que falten
+  const existing = new Map(state.stores.map((s) => [normalize(s.name), s]));
+  const missing = STORES.filter((name) => !existing.has(normalize(name)));
+  if (missing.length) {
+    await createStores(household.id, missing.map((name) => ({ name })));
+    const stores = await listStores(household.id);
+    setCatalogLocal({ stores });
+    stores.forEach((store) => existing.set(normalize(store.name), store));
   }
 
-  const products = [];
-  for (const data of DEMO_PRODUCTS) {
-    products.push(await productsDb.saveProduct({
-      name: data.name,
-      categoryId: categoryByName.get(normalize(data.category))?.id || null,
-      storeId: stores[data.store]?.id || null,
-      unit: data.unit,
-      referencePrice: data.price,
-      status: data.out ? STATUS.OUT : STATUS.AVAILABLE,
-      notes: '',
-      demo: true,
-    }));
-  }
+  const categoryByName = new Map(state.categories.map((c) => [normalize(c.name), c]));
+  const taken = new Set(state.products.map((p) => normalize(p.name)));
 
-  await refresh(['products', 'stores', 'categories', 'shoppingList'], { silent: true });
-  for (const product of products) {
-    await syncShoppingForProduct(product.id, { force: true });
-  }
-  await saveAppSettings({ demoLoaded: true });
-  await refresh();
-  return { products: products.length, stores: stores.length };
-}
+  const rows = PRODUCTS
+    .filter((item) => !taken.has(normalize(item.name)))
+    .map((item) => {
+      const category = categoryByName.get(normalize(item.category));
+      return {
+        name: item.name,
+        categoryId: category?.id || null,
+        storeId: existing.get(normalize(STORES[item.store]))?.id || null,
+        unit: item.unit,
+        inStock: item.inStock,
+        tracksExpiry: item.days != null,
+        expiresOn: dateIn(item.days),
+        referencePrice: item.price,
+        notes: '',
+      };
+    });
 
-/** Elimina únicamente los registros de demostración. */
-export async function removeDemoData() {
-  const [products, stores, items] = await Promise.all([
-    productsDb.listProducts(),
-    storesDb.listStores(),
-    listDb.listShoppingItems(),
-  ]);
-  const demoProductIds = new Set(products.filter((p) => p.demo).map((p) => p.id));
-  const demoStoreIds = new Set(stores.filter((s) => s.demo).map((s) => s.id));
-  const itemIds = items.filter((i) => demoProductIds.has(i.productId)).map((i) => i.id);
-
-  if (itemIds.length) await listDb.deleteShoppingItems(itemIds);
-  if (demoProductIds.size) await productsDb.deleteProducts([...demoProductIds]);
-  for (const storeId of demoStoreIds) await storesDb.deleteStore(storeId);
-
-  await saveAppSettings({ demoLoaded: false });
-  await refresh();
-  return { products: demoProductIds.size, stores: demoStoreIds.size };
-}
-
-export function demoCounts() {
-  return {
-    products: state.products.filter((p) => p.demo).length,
-    stores: state.stores.filter((s) => s.demo).length,
-  };
+  if (rows.length) await createProducts(household.id, rows);
+  await refreshProducts();
+  return { products: rows.length };
 }

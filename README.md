@@ -1,207 +1,196 @@
 # Despensa · Control de productos del hogar
 
-Aplicación web **PWA** para llevar el control de lo que hay en casa: qué productos tienes, dónde se
-compra cada uno, qué se agotó y qué falta comprar.
+Aplicación web **PWA** para saber qué hay en casa, qué falta comprar y qué está por vencer.
+Ahora la información vive en una **base de datos PostgreSQL (Supabase)**, así que todos los
+teléfonos de la casa ven exactamente lo mismo.
 
-- **100 % client-side**: no hay servidor, ni API, ni base de datos remota, ni cuentas de usuario.
-- **Funciona sin conexión** una vez cargada (service worker + precarga de recursos).
-- **Los datos viven en el dispositivo** (IndexedDB). Se comparten entre miembros del hogar exportando
-  e importando un archivo JSON.
-- **Instalable** en Android, iPhone/iPad y computadoras con navegador compatible.
-
-## Cómo funciona
-
-1. Registras los productos de tu hogar, con su **comercio habitual**, presentación, categoría y un
-   **precio de referencia** opcional.
-2. Cuando algo se acaba lo marcas como **agotado** y pasa solo a la **lista de compras**.
-3. Al comprarlo, un toque en **Comprado** lo devuelve al inventario como disponible y lo saca de la
-   lista. Cada acción puede deshacerse desde el aviso que aparece abajo.
-
-No hay registro de compras periódicas ni historial de precios: solo el estado actual de la despensa.
+- **Sincronizada**: una sola cuenta compartida; lo que cambia un teléfono aparece en los demás.
+- **Con fotos**: cada producto puede tener su fotografía, tomada con la cámara.
+- **Con vencimientos**: fecha opcional por producto (o «no aplica»), con avisos y filtros.
+- **Simple**: la única pregunta es *¿hay o no hay?*; lo que no hay forma la lista de compras.
+- **Instalable**: se agrega a la pantalla de inicio en Android, iPhone/iPad y computadoras.
 
 ---
 
-## Cómo ejecutarla localmente
+## 1. Preparar la base de datos (una sola vez, 10 minutos)
 
-La aplicación necesita servirse por HTTP (el service worker y los módulos ES no funcionan con `file://`).
+### 1.1 Crear el proyecto
+
+1. Entra a [supabase.com](https://supabase.com) y crea una cuenta gratuita.
+2. **New project** → ponle un nombre (por ejemplo `despensa`), elige una contraseña para la base de
+   datos (guárdala) y la región más cercana.
+3. Espera 1–2 minutos a que el proyecto termine de crearse.
+
+### 1.2 Crear las tablas
+
+1. En el menú lateral abre **SQL Editor** → **New query**.
+2. Copia **todo** el contenido del archivo [`supabase/schema.sql`](supabase/schema.sql) y pégalo.
+3. Pulsa **Run**. Debe terminar sin errores (los avisos «NOTICE» son normales).
+
+Esto crea las tablas, los índices, las políticas de seguridad, los disparadores y el espacio para
+las fotos. Puedes volver a ejecutarlo cuando quieras: no borra información.
+
+### 1.3 (Recomendado) Entrar sin confirmar el correo
+
+Para una cuenta familiar es más cómodo desactivar la confirmación por correo:
+
+**Authentication → Sign In / Providers → Email → Confirm email → apágalo → Save.**
+
+Si prefieres dejarlo encendido, tendrás que abrir el enlace que llegue al correo antes de entrar.
+
+### 1.4 Copiar los datos de conexión
+
+En **Project Settings → API** copia:
+
+| Dato | Dónde se usa |
+|---|---|
+| **Project URL** (`https://xxxx.supabase.co`) | Pantalla de conexión de la app |
+| **anon public** (clave larga que empieza con `eyJ…`) | Pantalla de conexión de la app |
+
+> La clave `anon` está diseñada para vivir en el navegador. Quien la tenga **no** puede leer tus
+> datos: las políticas RLS solo permiten ver las filas del hogar de la sesión iniciada.
+
+---
+
+## 2. Poner la aplicación en línea
+
+Es un sitio estático, sin compilación. Sube el contenido de la carpeta tal cual a:
+
+- **Netlify / Vercel / Cloudflare Pages**: arrastra la carpeta y listo.
+- **GitHub Pages**: sube el proyecto a un repositorio y actívalo (funciona en subcarpetas).
+- **Tu propio servidor**: copia los archivos al directorio público.
+
+Debe servirse por **HTTPS** para instalarse como app y para que funcione la cámara.
+
+Para probar en tu computadora:
 
 ```bash
-# Opción 1 — Python (ya incluido en macOS y Linux)
 cd despensa
-python3 -m http.server 8080
-
-# Opción 2 — Node
-npx serve .
+python3 -m http.server 8080    # o:  npx serve .
 ```
 
-Luego abre <http://localhost:8080> en el navegador.
+Y abre <http://localhost:8080>.
 
-Para probarla en el teléfono dentro de la misma red Wi-Fi, usa la IP de tu computadora
-(`http://192.168.x.x:8080`). Ten en cuenta que la instalación como app y el service worker requieren
-`https://` o `localhost`; para pruebas en el teléfono puedes usar un túnel (por ejemplo `ngrok`) o
-desplegarla.
+### Conectar la app
 
-## Cómo desplegarla
+La primera vez, la app muestra la pantalla **«Conecta tu base de datos»**: pega la URL y la clave,
+pulsa **Probar conexión** (verifica proyecto, clave, tablas y almacenamiento) y continúa.
 
-Es un sitio estático: sube el contenido de la carpeta tal cual a cualquier hosting.
+Si prefieres que todos los dispositivos queden configurados desde el inicio, escribe esos dos datos
+en [`config.js`](config.js) antes de subir la carpeta.
 
-- **GitHub Pages**: sube el proyecto a un repositorio y activa Pages. Funciona en subcarpetas
-  (todas las rutas son relativas).
-- **Netlify / Vercel / Cloudflare Pages**: arrastra la carpeta; sin build ni configuración.
-- **Servidor propio**: copia los archivos al directorio público.
+### Crear la cuenta del hogar
 
-Requisito: servir por **HTTPS** para que se pueda instalar y funcione offline.
+En la pantalla de acceso, **Crear la cuenta del hogar** con un correo y una contraseña que
+compartirás con tu familia. Cada teléfono inicia sesión una vez y queda listo.
 
 ---
 
-## Secciones
+## 3. Cómo se usa
 
-| Sección | Qué hace |
+1. **Registra** un producto: nombre, foto, categoría y si hay o no hay. Para alimentos y medicinas
+   la app activa sola la fecha de vencimiento (con atajos: 1 semana, 15 días, 1 mes…).
+2. Cuando algo **se acaba**, toca el botón de la tarjeta: pasa a **Falta comprar**.
+3. Al **comprarlo**, un toque lo devuelve al inventario; si vence, la app pregunta hasta cuándo dura.
+4. La pestaña **Falta** agrupa lo pendiente por comercio y se puede **compartir por WhatsApp**.
+5. En **Inicio** ves lo que está **por vencer o vencido** antes de que se eche a perder.
+
+Cada acción se puede **deshacer** desde el aviso que aparece abajo.
+
+### Las cuatro pestañas
+
+| Pestaña | Qué muestra |
 |---|---|
-| **Inicio** | Cuántos productos hay, cuántos están agotados, lista rápida con un toque para marcar comprado y últimos productos comprados. |
-| **Inventario** | Búsqueda instantánea, filtros por estado y categoría, orden por nombre/estado/comercio y botón de existencia en cada tarjeta. |
-| **Lista de compras** | Se llena sola con lo agotado. Cantidad, comercio, total estimado, agrupación por comercio y opción de compartirla como texto. |
-| **Más** | Comercios, categorías, copia de seguridad, ajustes, privacidad, tema claro/oscuro, instalación y datos de demostración. |
+| **Inicio** | Resumen del hogar, vencimientos próximos y lo que falta comprar. |
+| **Inventario** | Todo, en galería con fotos o en lista compacta. Búsqueda y filtros por estado y categoría. |
+| **Falta** | Lo marcado como «no hay», agrupado por comercio. |
+| **Más** | Categorías, comercios, ajustes del hogar, datos y apariencia. |
+
+### Categorías
+
+El hogar arranca con **Alimentos, Bebidas, Medicina, Aseo del hogar, Aseo personal, Mascotas, Bebé,
+Cocina y hogar, Otros**. Todas se pueden renombrar, cambiar de color e icono, o crear nuevas. Cada
+categoría define si sus productos **manejan fecha de vencimiento** por defecto.
 
 ---
 
-## Estructura del proyecto
+## 4. Cómo está hecho
 
 ```text
 /
-├── index.html                  Shell de la aplicación
-├── manifest.json               Metadatos PWA (iconos, atajos, colores)
-├── service-worker.js           Precarga y estrategia offline
-├── css/
-│   ├── styles.css              Sistema de diseño (tokens, componentes, temas)
-│   └── responsive.css          Adaptaciones por tamaño de pantalla
-├── js/
-│   ├── app.js                  Arranque, shell, navegación inferior, service worker
-│   ├── router.js               Enrutador por hash (#/ruta)
-│   ├── state.js                Caché en memoria + suscripciones de las vistas
-│   ├── theme.js                Tema claro / oscuro / automático
-│   ├── install.js              Instalación de la PWA
-│   ├── database/               Acceso a IndexedDB (una tabla por archivo)
-│   │   ├── database.js         Apertura, versionado y migraciones
-│   │   ├── products.js  stores.js  categories.js  shopping-list.js
-│   │   ├── settings.js         Configuración (IndexedDB) y preferencias (localStorage)
-│   │   └── photos.js           Fotos comprimidas de productos
-│   ├── services/               Lógica de negocio
-│   │   ├── inventory-service.js   Estados, comercio, sincronización con la lista
-│   │   ├── shopping-service.js    Lista de compras y deshacer
-│   │   ├── backup-service.js      Exportar / importar / compartir JSON
-│   │   └── demo-data.js           Datos de demostración
-│   ├── components/
-│   │   ├── ui/                 Sheets, toasts, confirmaciones, formularios
-│   │   ├── views/              Una vista por pantalla
-│   │   └── *-form.js           Formularios reutilizables (producto, comercio, categoría, artículo)
-│   └── utils/                  DOM, formato, fechas, iconos SVG, identificadores
-├── assets/
-│   ├── fonts/                  Tipografías autoalojadas (funcionan sin Internet)
-│   └── icons/                  Iconos e imágenes de inicio (Android / iOS)
-└── tools/
-    └── update-precache.mjs     Regenera la lista de archivos del service worker
+├── index.html              Marco de la aplicación
+├── config.js               URL y clave del proyecto (opcional)
+├── manifest.json           Metadatos PWA
+├── service-worker.js       Precarga la app (no guarda datos)
+├── supabase/schema.sql     Script de la base de datos
+├── vendor/supabase.mjs     SDK oficial de Supabase, incluido en el proyecto
+├── css/                    Sistema de diseño y adaptaciones por pantalla
+└── js/
+    ├── app.js              Arranque, marco, indicador de conexión
+    ├── router.js           Rutas por hash (#/inventario)
+    ├── state.js            Copia en memoria + actualización automática
+    ├── api/                Conversación con la base de datos
+    │   ├── client.js       Cliente, configuración y traducción de errores
+    │   ├── auth.js         Sesión de la cuenta del hogar
+    │   ├── household.js    Hogar y preferencias compartidas
+    │   ├── products.js     Productos
+    │   ├── catalog.js      Categorías y comercios
+    │   └── photos.js       Compresión y subida de fotos
+    ├── services/           Reglas (vencimientos, filtros, acciones, diagnóstico)
+    ├── components/         Vistas, formularios y piezas de interfaz
+    └── utils/              DOM, formato, fechas, iconos
 ```
 
-Separación de responsabilidades: **base de datos → servicios → interfaz**. Ninguna vista habla
-directamente con IndexedDB.
+Sin frameworks ni compilación: HTML, CSS y JavaScript con módulos nativos, más el SDK de Supabase
+incluido en la carpeta `vendor/` (no se descarga nada de Internet en tiempo de ejecución).
+
+### Tablas
+
+| Tabla | Contenido |
+|---|---|
+| `households` | Un hogar por cuenta: nombre, días de aviso de vencimiento y moneda. |
+| `categories` | Categorías del hogar, con color, icono y si sus productos vencen. |
+| `stores` | Comercios donde se compra. |
+| `products` | Nombre, categoría, comercio, presentación, **in_stock**, **expires_on**, precio de referencia, notas y ruta de la foto. |
+
+Las fotos se guardan en el bucket `product-photos` del almacenamiento de Supabase.
+
+### Seguridad
+
+- **RLS activo** en las cuatro tablas: cada fila pertenece a un hogar y solo la ve la cuenta dueña.
+- La sesión se guarda cifrada por el SDK en el navegador y se renueva sola.
+- El bucket de fotos es de **lectura pública** con rutas imposibles de adivinar (UUID), y solo una
+  sesión iniciada puede subir o borrar. Si prefieres privacidad total, cambia el bucket a privado en
+  Supabase y usa URLs firmadas.
+
+### Conexión
+
+La app es **en línea**: pide los datos frescos al abrirse, al volver a ella y cada 45 segundos,
+porque cualquier miembro del hogar pudo haberlos cambiado. El icono junto al título muestra el
+estado (al día, actualizando, sin conexión o error) y sirve para actualizar al instante. Si se cae
+la red, el cambio se revierte en pantalla y aparece un aviso claro.
 
 ---
 
-## Modelo de datos (IndexedDB)
+## 5. Costos
 
-Base de datos `despensa-hogar`, versión 2.
+El plan gratuito de Supabase incluye 500 MB de base de datos y 1 GB de almacenamiento: suficiente
+para miles de productos con foto. Los proyectos gratuitos se pausan tras una semana **sin ninguna
+actividad**; con el uso normal del hogar eso no ocurre, y se reactivan desde el panel.
 
-| Tabla | Clave | Campos |
-|---|---|---|
-| `products` | `id` | name, categoryId, **storeId** (comercio habitual), unit (presentación), **status** (`available` / `out`), **referencePrice**, notes, hasPhoto, lastPurchasedAt, createdAt, updatedAt |
-| `stores` | `id` | name, address, notes, createdAt, updatedAt |
-| `categories` | `id` | name, icon, color, createdAt |
-| `shoppingList` | `id` | productId, name, quantity, estimatedPrice, storeId, status, auto, createdAt, updatedAt |
-| `settings` | `key` | configuración de la app |
-| `photos` | `id` (= id del producto) | dataUrl comprimido, updatedAt |
+## 6. Mantenimiento
 
-`localStorage` solo guarda preferencias pequeñas de interfaz: tema, últimos filtros usados y
-agrupación de la lista.
-
-### Migraciones
-
-`js/database/database.js` aplica migraciones incrementales. La versión 2 elimina la tabla de compras
-y convierte cada producto al nuevo esquema: la cantidad pasa a estado (`0` → agotado), el último
-comercio del historial se guarda como comercio habitual y el precio promedio se conserva como precio
-de referencia. **Ningún producto se pierde al actualizar.**
-
-Para una versión futura basta con subir `DB_VERSION` y añadir un bloque:
-
-```js
-if (oldVersion < 3) {
-  // crear índices o transformar registros existentes
-}
-```
-
----
-
-## Reglas de negocio
-
-- Un producto está **Con existencia** o **Agotado**.
-- Al marcarlo agotado entra automáticamente en la lista de compras con su comercio y precio de
-  referencia (se puede desactivar en Ajustes).
-- Al marcarlo comprado vuelve a estar disponible, se guarda la fecha y sale de la lista.
-- Agregar un producto a la lista manualmente lo marca como agotado; quitarlo de la lista no cambia
-  su estado.
-- Si escribes en la lista un producto que no existe, se crea en el inventario como agotado.
-- Al eliminar un comercio, sus productos quedan «sin comercio» (no se borran).
-
----
-
-## Copia de seguridad y sincronización entre dispositivos
-
-No hay nube: el archivo JSON es el mecanismo de sincronización.
-
-1. En un dispositivo: **Más → Copia de seguridad → Exportar** (o **Compartir datos**, que usa la
-   Web Share API: WhatsApp, Telegram, AirDrop, correo, Drive, Archivos…).
-2. En el otro dispositivo: **Más → Copia de seguridad → Seleccionar archivo**.
-3. Se muestra un resumen (productos, comercios, categorías encontrados) y se elige:
-   - **Combinar**: agrega lo nuevo y evita duplicados (por id y por nombre).
-   - **Reemplazar**: deja solo la información del archivo.
-
-El archivo se llama `inventario-hogar-AAAA-MM-DD.json`. Los respaldos de la versión anterior (con
-historial de compras) también se pueden importar: la app avisa y convierte cada producto conservando
-su comercio y su precio de referencia.
-
-La lista de compras también puede compartirse como texto plano desde su menú, ideal para enviarla por
-WhatsApp a quien vaya a la tienda.
-
----
-
-## Mantenimiento
-
-Al agregar, renombrar o eliminar archivos estáticos, actualiza la lista de precarga del service
-worker:
+Al agregar o quitar archivos estáticos, actualiza la lista de precarga y sube la versión:
 
 ```bash
-node tools/update-precache.mjs
+node tools/update-precache.mjs   # regenera la lista del service worker
 ```
 
-Y cambia `VERSION` en `service-worker.js` (y `APP_VERSION` en `js/app-info.js`) para que los
-dispositivos reciban la actualización. La app avisa al usuario con «Hay una versión nueva disponible».
+Luego cambia `VERSION` en `service-worker.js` y `APP_VERSION` en `js/app-info.js`. La app avisa a
+cada dispositivo con «Hay una versión nueva disponible».
 
----
+## 7. Traer datos de la versión anterior
 
-## Notas técnicas
-
-- Sin frameworks ni dependencias externas en tiempo de ejecución: HTML5, CSS3 y JavaScript ES6+
-  con módulos nativos.
-- Tipografías **Fraunces** y **Hanken Grotesk** autoalojadas (SIL Open Font License) para que la
-  interfaz se vea igual sin conexión.
-- Iconos SVG en línea dibujados en el propio código (`js/utils/icons.js`).
-- Compatible con Chrome, Edge, Safari (iOS 15+), Firefox y Samsung Internet.
-- Accesibilidad: HTML semántico, etiquetas asociadas, roles ARIA en diálogos e interruptores,
-  objetivos táctiles ≥ 44 px, navegación por teclado, foco visible y estados que no dependen solo
-  del color.
-
-## Privacidad
-
-Todos los datos se almacenan localmente en el dispositivo. La aplicación no envía información a
-ningún servidor, no usa cuentas, analítica ni publicidad, y no hace ninguna petición de red después
-de cargarse.
+Si usabas la versión que guardaba todo en el teléfono, exporta el respaldo desde aquella app y en la
+nueva ve a **Más → Datos y privacidad → Importar**. Se crean los productos, categorías y comercios
+que falten, respetando lo que ya tengas.

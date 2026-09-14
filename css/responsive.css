@@ -63,7 +63,6 @@
   .nav-item__badge { top: 8px; left: 54%; }
 
   .app-main { padding-bottom: 60px; }
-  .app-main:has(.fab) { padding-bottom: 108px; }
   .toast-host { bottom: 22px; left: var(--rail); }
   .fab {
     bottom: 26px;
@@ -117,4 +116,13 @@
   body::before { display: none; }
   .app-main { padding: 0; max-width: none; }
   .card, .tile, .stat { box-shadow: none; border-color: #ccc; break-inside: avoid; }
+}
+
+/* ---------- Galería en pantallas grandes ---------- */
+@media (min-width: 560px) {
+  .product-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (min-width: 900px) {
+  .product-grid { grid-template-columns: repeat(4, 1fr); }
+  .auth-screen { padding-top: 48px; }
 }

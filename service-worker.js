@@ -1,11 +1,11 @@
 /**
  * Service worker de Despensa.
- * - Precarga todos los archivos estáticos para funcionar sin conexión.
- * - Navegaciones: red primero, con respaldo en caché (la app sigue abriendo offline).
- * - Recursos: caché primero, con actualización en segundo plano.
- * Los datos del usuario NO pasan por aquí: viven en IndexedDB.
+ * - Precarga la aplicación (HTML, CSS, JavaScript, tipografías e iconos) para
+ *   que abra al instante y se pueda instalar.
+ * - Los datos NO pasan por aquí: viven en la base de datos y se piden siempre
+ *   frescos, porque cualquier miembro del hogar puede haberlos cambiado.
  */
-const VERSION = 'v2.0.0';
+const VERSION = 'v3.0.0';
 const CACHE_NAME = `despensa-${VERSION}`;
 
 /* precache:start */
@@ -13,49 +13,50 @@ const PRECACHE = [
   './',
   './index.html',
   './manifest.json',
+  './config.js',
   './css/responsive.css',
   './css/styles.css',
+  './js/api/auth.js',
+  './js/api/catalog.js',
+  './js/api/client.js',
+  './js/api/household.js',
+  './js/api/photos.js',
+  './js/api/products.js',
   './js/app-info.js',
   './js/app.js',
   './js/components/category-form.js',
+  './js/components/product-card.js',
   './js/components/product-form.js',
-  './js/components/shopping-item-form.js',
   './js/components/store-form.js',
   './js/components/ui/confirm.js',
   './js/components/ui/empty.js',
   './js/components/ui/form.js',
   './js/components/ui/sheet.js',
   './js/components/ui/toast.js',
-  './js/components/views/backup.js',
   './js/components/views/categories.js',
   './js/components/views/dashboard.js',
   './js/components/views/inventory.js',
+  './js/components/views/list.js',
+  './js/components/views/login.js',
   './js/components/views/more.js',
   './js/components/views/privacy.js',
   './js/components/views/product-detail.js',
   './js/components/views/settings.js',
-  './js/components/views/shopping-list.js',
+  './js/components/views/setup.js',
   './js/components/views/stores.js',
-  './js/database/categories.js',
-  './js/database/database.js',
-  './js/database/photos.js',
-  './js/database/products.js',
-  './js/database/settings.js',
-  './js/database/shopping-list.js',
-  './js/database/stores.js',
   './js/install.js',
   './js/router.js',
-  './js/services/backup-service.js',
+  './js/services/actions.js',
   './js/services/demo-data.js',
-  './js/services/inventory-service.js',
-  './js/services/shopping-service.js',
+  './js/services/diagnostics.js',
+  './js/services/inventory.js',
   './js/state.js',
   './js/theme.js',
   './js/utils/date.js',
   './js/utils/dom.js',
   './js/utils/format.js',
   './js/utils/icons.js',
-  './js/utils/id.js',
+  './js/utils/prefs.js',
   './assets/fonts/fraunces-var.woff2',
   './assets/fonts/hanken-var.woff2',
   './assets/icons/apple-touch-icon.png',
@@ -83,6 +84,8 @@ const PRECACHE = [
   './assets/icons/splash-2048x2732.png',
   './assets/icons/splash-750x1334.png',
   './assets/icons/splash-828x1792.png',
+  './vendor/supabase.mjs',
+  './supabase/schema.sql',
 ];
 /* precache:end */
 

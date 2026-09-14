@@ -7,9 +7,14 @@ const nextId = (prefix = 'f') => `${prefix}-${(seq += 1)}`;
 
 /** Envuelve un control con su etiqueta, pista y espacio para errores. */
 export function field(label, control, { hint = '', id = null, required = false } = {}) {
-  const controlId = id || control.id || nextId('field');
-  control.id = controlId;
-  if (required) control.required = true;
+  // El control puede venir envuelto (por ejemplo el campo de dinero): se busca
+  // el input real para que la etiqueta quede asociada de verdad.
+  const target = control.matches?.('input, select, textarea')
+    ? control
+    : (control.querySelector?.('input, select, textarea') || control);
+  const controlId = id || target.id || nextId('field');
+  target.id = controlId;
+  if (required) target.required = true;
   return h('div.field',
     h('label.field__label', { for: controlId }, label, required ? h('span', { 'aria-hidden': 'true', style: { color: 'var(--danger)' } }, ' *') : null),
     control,

@@ -7,7 +7,7 @@ import { readdirSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
-const INCLUDE_DIRS = ['css', 'js', 'assets'];
+const INCLUDE_DIRS = ['css', 'js', 'assets', 'vendor', 'supabase'];
 const SKIP = new Set(['.DS_Store', 'Thumbs.db']);
 const SKIP_EXT = ['.md', '.txt'];
 
@@ -21,7 +21,7 @@ function walk(dir, out = []) {
   return out;
 }
 
-const files = ['./', './index.html', './manifest.json'];
+const files = ['./', './index.html', './manifest.json', './config.js'];
 for (const dir of INCLUDE_DIRS) {
   files.push(...walk(join(ROOT, dir)).sort());
 }

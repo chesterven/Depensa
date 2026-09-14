@@ -1,4 +1,4 @@
-/** Sección «Más»: accesos, apariencia, instalación y datos de demostración. */
+/** Sección «Más»: catálogos, ajustes, apariencia e instalación. */
 import { h } from '../../utils/dom.js';
 import { icon } from '../../utils/icons.js';
 import { plural } from '../../utils/format.js';
@@ -6,50 +6,40 @@ import { formatRelative } from '../../utils/date.js';
 import { state } from '../../state.js';
 import { THEMES, getTheme, setTheme } from '../../theme.js';
 import { canInstall, promptInstall, isIOS, isStandalone, onInstallAvailability } from '../../install.js';
-import { inventorySummary } from '../../services/inventory-service.js';
-import { loadDemoData, removeDemoData } from '../../services/demo-data.js';
+import { summary } from '../../services/inventory.js';
+import { loadDemo } from '../../services/demo-data.js';
 import { openSheet } from '../ui/sheet.js';
-import { confirmDialog } from '../ui/confirm.js';
 import { toastOk, toastError } from '../ui/toast.js';
 import { APP_VERSION } from '../../app-info.js';
 
 export function render(ctx) {
-  ctx.setHeader({ title: 'Más', subtitle: 'Herramientas y ajustes' });
+  ctx.setHeader({ title: 'Más', subtitle: 'Ajustes y herramientas' });
   ctx.onState(() => ctx.refresh());
   ctx.onCleanup(onInstallAvailability(() => ctx.refresh()));
 
+  const stats = summary(state.products);
   const root = h('div');
-  const summary = inventorySummary(state.products);
-  const demoLoaded = state.products.some((product) => product.demo);
 
   root.appendChild(h('div.card',
     h('div.row', { style: { gap: '13px' } },
       h('div.thumb.thumb--lg', { html: icon('jar', { size: 26 }) }),
       h('div.grow',
-        h('h2', state.settings?.householdName || 'Mi hogar'),
-        h('div.muted.small', `${plural(summary.total, 'producto')} · ${summary.available} con existencia · ${summary.out} agotados`),
+        h('h2', state.household?.name || 'Mi hogar'),
+        h('div.muted.small', `${plural(stats.total, 'producto')} · ${stats.inStock} en existencia · faltan ${stats.out}`),
+        h('div.muted.small', state.lastSyncAt ? `Actualizado ${formatRelative(state.lastSyncAt)}` : 'Sin actualizar'),
       ),
     ),
   ));
 
   root.appendChild(h('div.card.mt-2',
     h('div.menu-list',
-      menu('store', 'Comercios', plural(state.stores.length, 'comercio'), () => ctx.go('/comercios')),
       menu('tag', 'Categorías', plural(state.categories.length, 'categoría', 'categorías'), () => ctx.go('/categorias')),
+      menu('store', 'Comercios', plural(state.stores.length, 'comercio'), () => ctx.go('/comercios')),
+      menu('sliders', 'Ajustes del hogar', 'Nombre, avisos y moneda', () => ctx.go('/ajustes')),
+      menu('shield', 'Datos y privacidad', 'Respaldo, cuenta y conexión', () => ctx.go('/privacidad')),
     ),
   ));
 
-  root.appendChild(h('div.card',
-    h('div.menu-list',
-      menu('database', 'Copia de seguridad', state.settings?.lastBackupAt
-        ? `Última: ${formatRelative(state.settings.lastBackupAt)}`
-        : 'Nunca has exportado tus datos', () => ctx.go('/respaldo')),
-      menu('sliders', 'Ajustes', 'Moneda, hogar y comportamiento', () => ctx.go('/ajustes')),
-      menu('shield', 'Privacidad', 'Tus datos viven en este dispositivo', () => ctx.go('/privacidad')),
-    ),
-  ));
-
-  /* ---- Apariencia ---- */
   const current = getTheme();
   root.appendChild(h('div.card',
     h('div.card-head', h('h3', 'Apariencia')),
@@ -63,11 +53,10 @@ export function render(ctx) {
     ),
   ));
 
-  /* ---- Instalación ---- */
   if (!isStandalone()) {
     root.appendChild(h('div.card.install-banner',
       h('div.card-head', h('h3', 'Instalar la aplicación')),
-      h('p.muted.small', 'Instálala en tu pantalla de inicio para abrirla como una app y usarla sin conexión.'),
+      h('p.muted.small', 'Agrégala a tu pantalla de inicio para abrirla como una app.'),
       canInstall()
         ? h('button.btn.btn-primary.btn-block', {
           type: 'button',
@@ -77,46 +66,31 @@ export function render(ctx) {
             ctx.refresh();
           },
         }, h('span', { html: icon('download', { size: 18 }) }), 'Instalar ahora')
-        : h('button.btn.btn-soft.btn-block', { type: 'button', onclick: () => openInstallHelp() },
+        : h('button.btn.btn-soft.btn-block', { type: 'button', onclick: installHelp },
           h('span', { html: icon('info', { size: 18 }) }), 'Cómo instalarla'),
     ));
   }
 
-  /* ---- Datos de demostración ---- */
-  root.appendChild(h('div.card',
-    h('div.card-head', h('h3', 'Datos de demostración')),
-    h('p.muted.small', demoLoaded
-      ? 'Los datos de ejemplo están cargados. Puedes eliminarlos sin tocar tu información real.'
-      : 'Carga productos, comercios e historial ficticio para probar todas las funciones.'),
-    demoLoaded
-      ? h('button.btn.btn-soft.btn-block', {
+  if (state.products.length < 3) {
+    root.appendChild(h('div.card',
+      h('div.card-head', h('h3', 'Datos de ejemplo')),
+      h('p.muted.small', 'Agrega productos de muestra en varias categorías, con fechas de vencimiento, para probar la app.'),
+      h('button.btn.btn-soft.btn-block', {
         type: 'button',
-        onclick: async () => {
-          const ok = await confirmDialog({
-            title: '¿Eliminar los datos de demostración?',
-            message: 'Se borrarán solo los productos, comercios y compras de ejemplo.',
-            confirmText: 'Eliminar ejemplos',
-          });
-          if (!ok) return;
+        onclick: async (event) => {
+          const button = event.currentTarget;
+          button.disabled = true;
           try {
-            const result = await removeDemoData();
-            toastOk(`${result.products} productos de ejemplo eliminados`);
-          } catch (error) { toastError(error); }
+            const result = await loadDemo();
+            toastOk(`${result.products} productos de ejemplo agregados`);
+          } catch (error) { toastError(error); } finally { button.disabled = false; }
         },
-      }, h('span', { html: icon('trash', { size: 18 }) }), 'Eliminar datos de ejemplo')
-      : h('button.btn.btn-soft.btn-block', {
-        type: 'button',
-        onclick: async () => {
-          try {
-            const result = await loadDemoData();
-            toastOk(`${result.products} productos de ejemplo cargados`);
-          } catch (error) { toastError(error); }
-        },
-      }, h('span', { html: icon('sparkles', { size: 18 }) }), 'Cargar datos de ejemplo'),
-  ));
+      }, h('span', { html: icon('sparkles', { size: 18 }) }), 'Cargar ejemplo'),
+    ));
+  }
 
   root.appendChild(h('div.text-center.muted.small', { style: { padding: '22px 0 6px' } },
-    `Despensa ${APP_VERSION} · funciona sin conexión`));
+    `Despensa ${APP_VERSION} · datos en tu base de datos`));
 
   return root;
 
@@ -127,23 +101,18 @@ export function render(ctx) {
       h('span.chevron', { html: icon('chevronRight', { size: 18 }) }));
   }
 
-  function openInstallHelp() {
+  function installHelp() {
     openSheet({
       title: 'Instalar en tu teléfono',
       content: h('div',
         isIOS()
           ? h('ol', { style: { paddingLeft: '20px', lineHeight: '1.7' } },
             h('li', 'Abre esta página en Safari.'),
-            h('li', 'Toca el botón Compartir (el cuadrado con la flecha).'),
-            h('li', 'Elige «Agregar a inicio».'),
-            h('li', 'Confirma con «Agregar».'))
+            h('li', 'Toca el botón Compartir.'),
+            h('li', 'Elige «Agregar a inicio».'))
           : h('ol', { style: { paddingLeft: '20px', lineHeight: '1.7' } },
             h('li', 'Abre el menú del navegador (⋮).'),
-            h('li', 'Elige «Instalar aplicación» o «Agregar a pantalla principal».'),
-            h('li', 'Confirma la instalación.')),
-        h('div.notice.notice--info.mt-2',
-          h('span', { html: icon('wifiOff', { size: 18 }) }),
-          h('span.grow', 'Una vez instalada podrás usarla sin conexión a Internet.')),
+            h('li', 'Elige «Instalar aplicación».')),
       ),
     });
   }

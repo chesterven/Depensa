@@ -124,7 +124,12 @@ async function render(keepScroll = false) {
   if (token !== renderToken) return; // otra navegación tomó el control
 
   outlet.replaceChildren(node);
+  // La animación de entrada se quita al terminar: mientras está aplicada crea un
+  // bloque contenedor que descolocaría los elementos fijos (botón flotante).
   node.classList?.add('view-enter');
+  const clearAnimation = () => node.classList?.remove('view-enter');
+  node.addEventListener?.('animationend', clearAnimation, { once: true });
+  setTimeout(clearAnimation, 600);
   current = { ctx, route: found.route };
   onChange?.(found.route, found.params);
 

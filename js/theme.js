@@ -1,5 +1,5 @@
 /** Tema claro / oscuro / automático (preferencia guardada en localStorage). */
-import { getPref, setPref } from './database/settings.js';
+import { getPref, setPref } from './utils/prefs.js';
 
 export const THEMES = [
   { value: 'auto', label: 'Automático', icon: 'monitor' },

@@ -1,123 +1,59 @@
-/** Ajustes generales de la aplicación. */
+/** Ajustes del hogar (compartidos entre todos los dispositivos). */
 import { h } from '../../utils/dom.js';
 import { icon } from '../../utils/icons.js';
-import { state, refresh } from '../../state.js';
-import { saveAppSettings } from '../../database/settings.js';
-import { rebuildFromInventory } from '../../services/shopping-service.js';
-import { THEMES, getTheme, setTheme } from '../../theme.js';
-import { field, input, select, switchRow } from '../ui/form.js';
+import { state, setHouseholdLocal } from '../../state.js';
+import { updateHousehold } from '../../api/household.js';
+import { field, input, segmented, select } from '../ui/form.js';
 import { toastOk, toastError } from '../ui/toast.js';
-import { APP_VERSION } from '../../app-info.js';
 
-const CURRENCIES = [
-  { value: '$|USD', label: 'Dólar ($)' },
-  { value: '€|EUR', label: 'Euro (€)' },
-  { value: '₡|CRC', label: 'Colón (₡)' },
-  { value: 'Q|GTQ', label: 'Quetzal (Q)' },
-  { value: 'L|HNL', label: 'Lempira (L)' },
-  { value: 'C$|NIO', label: 'Córdoba (C$)' },
-  { value: 'MX$|MXN', label: 'Peso mexicano (MX$)' },
-  { value: 'S/|PEN', label: 'Sol (S/)' },
-  { value: 'COP$|COP', label: 'Peso colombiano (COP$)' },
-  { value: 'Bs|VES', label: 'Bolívar (Bs)' },
-];
+const CURRENCIES = ['$', '€', '₡', 'Q', 'L', 'C$', 'S/', 'MX$', 'Bs'];
 
 export function render(ctx) {
-  ctx.setHeader({ title: 'Ajustes', subtitle: 'Personaliza la aplicación', back: true });
+  ctx.setHeader({ title: 'Ajustes del hogar', subtitle: 'Se aplican a todos los dispositivos', back: true });
   ctx.onState(() => ctx.refresh());
 
-  const settings = state.settings || {};
+  const household = state.household;
   const root = h('div');
+  if (!household) return root;
 
-  const householdInput = input({
-    value: settings.householdName || '',
+  const nameInput = input({
+    value: household.name,
     placeholder: 'Mi hogar',
-    onchange: async (event) => {
-      await save({ householdName: event.target.value.trim() || 'Mi hogar' });
-    },
+    onchange: (event) => save({ name: event.target.value.trim() || 'Mi hogar' }),
   });
 
-  const currencyValue = `${settings.currency?.symbol || '$'}|${settings.currency?.code || 'USD'}`;
-  const currencySelect = select(
-    CURRENCIES.some((c) => c.value === currencyValue) ? CURRENCIES : [...CURRENCIES, { value: currencyValue, label: settings.currency?.symbol }],
-    currencyValue,
-    {
-      onchange: async (event) => {
-        const [symbol, code] = event.target.value.split('|');
-        await save({ currency: { ...settings.currency, symbol, code } });
-        ctx.refresh();
-      },
-    },
-  );
-
-  const decimalsSelect = select(
-    [{ value: '0', label: 'Sin decimales (100)' }, { value: '2', label: 'Dos decimales (100.00)' }],
-    String(settings.currency?.decimals ?? 2),
-    {
-      onchange: async (event) => {
-        await save({ currency: { ...settings.currency, decimals: Number(event.target.value) } });
-        ctx.refresh();
-      },
-    },
-  );
-
   root.appendChild(h('div.card',
-    h('div.card-head', h('h3', 'Hogar')),
-    field('Nombre del hogar', householdInput, { hint: 'Aparece en la pantalla de inicio.' }),
+    h('div.card-head', h('h3', 'Nombre del hogar')),
+    field('Cómo se llama tu casa', nameInput, { hint: 'Aparece en la pantalla de inicio.' }),
   ));
 
   root.appendChild(h('div.card.mt-2',
+    h('div.card-head', h('h3', 'Avisos de vencimiento')),
+    h('p.muted.small', 'Con cuántos días de anticipación quieres ver el aviso «por vencer».'),
+    segmented(
+      [{ value: '3', label: '3 días' }, { value: '7', label: '7 días' }, { value: '15', label: '15 días' }, { value: '30', label: '30 días' }],
+      String(household.expiryWarningDays),
+      (value) => save({ expiryWarningDays: Number(value) }),
+    ),
+  ));
+
+  root.appendChild(h('div.card',
     h('div.card-head', h('h3', 'Moneda')),
-    field('Moneda', currencySelect),
-    field('Formato', decimalsSelect),
+    field('Símbolo para los precios de referencia',
+      select(CURRENCIES.map((symbol) => ({ value: symbol, label: symbol })), household.currencySymbol,
+        { onchange: (event) => save({ currencySymbol: event.target.value }) })),
   ));
 
-  root.appendChild(h('div.card',
-    h('div.card-head', h('h3', 'Comportamiento')),
-    switchRow({
-      title: 'Lista de compras automática',
-      hint: 'Agrega a la lista los productos que marques como agotados',
-      checked: settings.autoAddToList !== false,
-      onChange: async (value) => {
-        await save({ autoAddToList: value });
-        if (value) await rebuildFromInventory();
-      },
-    }),
-  ));
-
-  const currentTheme = getTheme();
-  root.appendChild(h('div.card',
-    h('div.card-head', h('h3', 'Apariencia')),
-    h('div.row', { style: { gap: '8px' } },
-      ...THEMES.map((theme) => h('button', {
-        type: 'button',
-        class: `btn ${currentTheme === theme.value ? 'btn-primary' : 'btn-soft'} grow`,
-        onclick: () => { setTheme(theme.value); ctx.refresh(); },
-      }, h('span', { html: icon(theme.icon, { size: 18 }) }), theme.label)),
-    ),
-  ));
-
-  root.appendChild(h('div.card',
-    h('div.menu-list',
-      h('button.menu-item', { type: 'button', onclick: () => ctx.go('/respaldo') },
-        h('span.menu-item__icon', { html: icon('database', { size: 18 }) }),
-        h('div.menu-item__body', h('div.menu-item__title', 'Copia de seguridad'), h('div.menu-item__hint', 'Exportar, compartir e importar')),
-        h('span.chevron', { html: icon('chevronRight', { size: 18 }) })),
-      h('button.menu-item', { type: 'button', onclick: () => ctx.go('/privacidad') },
-        h('span.menu-item__icon', { html: icon('shield', { size: 18 }) }),
-        h('div.menu-item__body', h('div.menu-item__title', 'Privacidad')),
-        h('span.chevron', { html: icon('chevronRight', { size: 18 }) })),
-    ),
-  ));
-
-  root.appendChild(h('div.text-center.muted.small', { style: { padding: '20px 0' } }, `Despensa ${APP_VERSION}`));
+  root.appendChild(h('div.notice.notice--info.mt-2',
+    h('span', { html: icon('info', { size: 18 }) }),
+    h('span.grow', 'Los cambios se guardan en la base de datos y los verán todos los miembros del hogar.')));
 
   return root;
 
-  async function save(partial) {
+  async function save(patch) {
     try {
-      await saveAppSettings(partial);
-      await refresh(['settings']);
+      const updated = await updateHousehold(household.id, patch);
+      setHouseholdLocal(updated);
       toastOk('Ajustes guardados');
     } catch (error) {
       toastError(error);
