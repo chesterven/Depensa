@@ -3,9 +3,10 @@
  * Actualizan la pantalla al instante y confirman contra la base de datos;
  * si algo falla, se revierte y se avisa.
  */
-import { state, upsertProductLocal, removeProductLocal } from '../state.js';
+import { state, upsertProductLocal, removeProductLocal, refreshDurations } from '../state.js';
 import { setStock, updateProduct, deleteProduct } from '../api/products.js';
 import { removePhoto } from '../api/photos.js';
+import { deleteRecentCycle } from '../api/cycles.js';
 import { toast, toastOk, toastError } from '../components/ui/toast.js';
 import { askExpiryDate } from '../components/product-form.js';
 import { haptic } from '../utils/dom.js';
@@ -33,6 +34,8 @@ export async function toggleStock(product, { askExpiry = true } = {}) {
     const patch = expiresOn !== undefined ? { expiresOn } : {};
     const saved = await setStock(product.id, next, patch);
     upsertProductLocal(saved);
+    // Al acabarse algo, la base de datos cierra un ciclo: hay promedio nuevo.
+    if (!next) refreshDurations();
     toast(next ? `«${product.name}» otra vez en casa` : `«${product.name}» pasó a la lista`, {
       type: next ? 'ok' : 'warn',
       action: { label: 'Deshacer', onClick: () => revert(previous) },
@@ -48,11 +51,19 @@ export async function toggleStock(product, { askExpiry = true } = {}) {
 async function revert(previous) {
   upsertProductLocal(previous);
   try {
+    // Al volver a «hay» se manda la fecha de compra original a propósito: el
+    // disparador solo la genera cuando llega vacía, así que así se conserva.
     const saved = await updateProduct(previous.id, {
       inStock: previous.inStock,
       expiresOn: previous.expiresOn,
+      purchasedOn: previous.purchasedOn ?? null,
     });
     upsertProductLocal(saved);
+    // Y se retira el ciclo que había cerrado el toque que se está deshaciendo
+    if (previous.inStock) {
+      await deleteRecentCycle(previous.id);
+      refreshDurations();
+    }
   } catch (error) {
     toastError(error, 'No se pudo deshacer.');
   }

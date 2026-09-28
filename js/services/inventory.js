@@ -2,8 +2,8 @@
  * Reglas del inventario: existencia, vencimientos, filtros y resúmenes.
  * No habla con la red: recibe los productos ya cargados.
  */
-import { state, warningDays } from '../state.js';
-import { normalize } from '../utils/format.js';
+import { state, warningDays, durationOf } from '../state.js';
+import { normalize, plural } from '../utils/format.js';
 import { todayKey, parseDate, formatDate } from '../utils/date.js';
 
 export const EXPIRY = {
@@ -199,4 +199,86 @@ export function expiryPresets(from = new Date()) {
     return { label, value: todayKey(date) };
   };
   return [make(7, '1 semana'), make(15, '15 días'), make(30, '1 mes'), make(90, '3 meses'), make(365, '1 año')];
+}
+
+/* ---------------------------------------------------------------------------
+   ¿Cuánto dura en casa?
+   El promedio sale de los ciclos cerrados (compra → se acabó) que la base de
+   datos guarda sola. Aquí solo se interpreta y se pone en palabras.
+   --------------------------------------------------------------------------- */
+
+/** Días en lenguaje natural: 4 → «4 días», 14 → «2 semanas», 90 → «3 meses». */
+export function formatDuration(days) {
+  const n = Math.round(Number(days));
+  if (!Number.isFinite(n) || n < 0) return '—';
+  if (n === 0) return 'menos de un día';
+  if (n < 14) return plural(n, 'día');
+  if (n < 30) return plural(Math.round(n / 7), 'semana');
+  if (n < 365) return plural(Math.round(n / 30.44), 'mes', 'meses');
+  return plural(Math.round(n / 365), 'año');
+}
+
+/**
+ * Cuánto lleva abierta la existencia actual (desde la compra hasta hoy).
+ * Devuelve null si el producto no está en casa o no tiene fecha de compra.
+ */
+export function daysInHouse(product) {
+  if (!product?.inStock || !product.purchasedOn) return null;
+  const started = parseDate(product.purchasedOn);
+  if (!started) return null;
+  const today = new Date();
+  const a = new Date(started.getFullYear(), started.getMonth(), started.getDate());
+  const b = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.max(0, Math.round((b - a) / 86400000));
+}
+
+/**
+ * Lectura completa de la duración de un producto, lista para pintar.
+ * `stats` viene de state.durationByProduct (la vista product_duration_stats).
+ */
+export function durationInfo(product, stats = durationOf(product)) {
+  const elapsed = daysInHouse(product);
+
+  if (!stats || !stats.cycles) {
+    return {
+      known: false,
+      cycles: 0,
+      avgDays: null,
+      label: 'Todavía sin datos',
+      hint: product?.inStock
+        ? 'Cuando se acabe, la app empieza a calcular cuánto te dura.'
+        : 'Al comprarlo y acabarlo, la app aprende cuánto te dura.',
+      elapsed,
+      elapsedLabel: elapsed == null ? null : formatDuration(elapsed),
+      tone: 'muted',
+      overdue: false,
+    };
+  }
+
+  // Con la existencia actual abierta, avisamos si ya pasó de lo habitual.
+  const overdue = elapsed != null && stats.avgDays > 0 && elapsed > stats.avgDays * 1.5;
+
+  return {
+    known: true,
+    cycles: stats.cycles,
+    avgDays: stats.avgDays,
+    minDays: stats.minDays,
+    maxDays: stats.maxDays,
+    label: formatDuration(stats.avgDays),
+    hint: stats.cycles === 1
+      ? 'Basado en 1 vez que se acabó.'
+      : `Promedio de ${stats.cycles} veces que se acabó.`,
+    elapsed,
+    elapsedLabel: elapsed == null ? null : formatDuration(elapsed),
+    tone: overdue ? 'warn' : 'muted',
+    overdue,
+  };
+}
+
+/** Productos que ya duraron más de lo normal (posible olvido de marcarlos). */
+export function lastingLongerThanUsual(products = state.products) {
+  return products
+    .map((product) => ({ product, info: durationInfo(product) }))
+    .filter(({ info }) => info.overdue)
+    .sort((a, b) => (b.info.elapsed - b.info.avgDays) - (a.info.elapsed - a.info.avgDays));
 }

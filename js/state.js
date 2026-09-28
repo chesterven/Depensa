@@ -7,6 +7,7 @@ import * as auth from './api/auth.js';
 import { ensureHousehold } from './api/household.js';
 import { listProducts } from './api/products.js';
 import { listCategories, listStores } from './api/catalog.js';
+import { listDurationStats } from './api/cycles.js';
 import { isConfigured, describeError } from './api/client.js';
 import { setCurrency } from './utils/format.js';
 
@@ -33,6 +34,7 @@ export const state = {
   categoriesById: new Map(),
   storesById: new Map(),
   productsById: new Map(),
+  durationByProduct: new Map(),   // cuánto dura cada producto, por id
 };
 
 const listeners = new Set();
@@ -81,6 +83,7 @@ export function setSession(session) {
     state.products = [];
     state.categories = [];
     state.stores = [];
+    state.durationByProduct = new Map();
     state.lastSyncAt = null;
     reindex();
   }
@@ -97,15 +100,17 @@ export async function loadAll({ silent = false } = {}) {
 
   try {
     const household = state.household || await ensureHousehold(state.session.user.id);
-    const [categories, stores, products] = await Promise.all([
+    const [categories, stores, products, durations] = await Promise.all([
       listCategories(household.id),
       listStores(household.id),
       listProducts(household.id),
+      listDurationStats(household.id),
     ]);
     state.household = household;
     state.categories = categories;
     state.stores = stores;
     state.products = products;
+    state.durationByProduct = new Map(durations.map((d) => [d.productId, d]));
     state.lastSyncAt = new Date().toISOString();
     state.online = true;
     setCurrency({ symbol: household.currencySymbol });
@@ -119,6 +124,20 @@ export async function loadAll({ silent = false } = {}) {
     state.loading = false;
     state.refreshing = false;
     notify('loaded');
+  }
+}
+
+/** Relee los promedios de duración (tras cerrarse un ciclo). */
+export async function refreshDurations() {
+  if (!state.household) return false;
+  try {
+    const durations = await listDurationStats(state.household.id);
+    state.durationByProduct = new Map(durations.map((d) => [d.productId, d]));
+    notify('durations');
+    return true;
+  } catch (error) {
+    console.warn('[duración] no se pudo actualizar', error);
+    return false;
   }
 }
 
@@ -218,3 +237,4 @@ export const storeOf = (product) => state.storesById.get(product?.storeId) || nu
 export const categoryName = (id, fallback = 'Sin categoría') => state.categoriesById.get(id)?.name || fallback;
 export const storeName = (id, fallback = 'Sin comercio') => state.storesById.get(id)?.name || fallback;
 export const warningDays = () => state.household?.expiryWarningDays ?? 7;
+export const durationOf = (product) => state.durationByProduct.get(product?.id) || null;

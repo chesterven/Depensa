@@ -57,9 +57,27 @@ create table if not exists public.products (
   reference_price    numeric(10,2),
   notes              text not null default '',
   photo_path         text,                              -- ruta dentro del bucket de fotos
+  purchased_on       date,                              -- cuándo entró a casa la existencia actual
   status_changed_at  timestamptz not null default now(),
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()
+);
+
+-- Para instalaciones anteriores a la función «cuánto dura»
+alter table public.products add column if not exists purchased_on date;
+
+-- Historial: un renglón por cada vez que un producto se acabó.
+-- Lo escribe sola la base de datos (ver disparadores), así que da igual qué
+-- teléfono marque «ya no hay»: el ciclo queda registrado.
+create table if not exists public.product_cycles (
+  id            uuid primary key default gen_random_uuid(),
+  household_id  uuid not null references public.households (id) on delete cascade,
+  product_id    uuid not null references public.products (id) on delete cascade,
+  started_on    date not null,                          -- fecha de compra
+  ended_on      date not null,                          -- día en que se marcó «no hay»
+  days          integer generated always as (ended_on - started_on) stored,
+  created_at    timestamptz not null default now(),
+  constraint product_cycles_orden check (ended_on >= started_on)
 );
 
 -- ---------------------------------------------------------------------------
@@ -71,6 +89,8 @@ create index if not exists products_expiry_idx        on public.products (househ
 create index if not exists products_name_idx          on public.products (household_id, lower(name));
 create index if not exists categories_household_idx   on public.categories (household_id, sort_order);
 create index if not exists stores_household_idx       on public.stores (household_id);
+create index if not exists cycles_product_idx         on public.product_cycles (product_id, ended_on desc);
+create index if not exists cycles_household_idx       on public.product_cycles (household_id);
 
 -- Evita productos repetidos con el mismo nombre dentro de un hogar
 create unique index if not exists products_unique_name_idx
@@ -102,7 +122,14 @@ begin
 end;
 $$;
 
--- Si cambia la existencia del producto, se guarda cuándo ocurrió
+-- Si cambia la existencia del producto, se guarda cuándo ocurrió.
+--
+-- `purchased_on` significa «cuándo entró a casa la existencia actual», así que
+-- se borra al acabarse y se pone sola al reponer. La regla es «solo si viene
+-- vacía», y eso es justo lo que permite deshacer: al deshacer, la app manda la
+-- fecha original y el disparador la respeta en lugar de pisarla con la de hoy.
+-- (El disparador AFTER sigue viendo old.purchased_on intacta, que es la que
+-- necesita para cerrar el ciclo.)
 create or replace function public.touch_status_changed_at()
 returns trigger
 language plpgsql
@@ -110,6 +137,13 @@ as $$
 begin
   if new.in_stock is distinct from old.in_stock then
     new.status_changed_at := now();
+    if new.in_stock then
+      if new.purchased_on is null then
+        new.purchased_on := current_date;
+      end if;
+    else
+      new.purchased_on := null;
+    end if;
   end if;
   return new;
 end;
@@ -118,6 +152,55 @@ $$;
 drop trigger if exists set_status_changed_at on public.products;
 create trigger set_status_changed_at before update on public.products
   for each row execute function public.touch_status_changed_at();
+
+-- Cuando un producto pasa de «hay» a «no hay», se cierra el ciclo y queda
+-- guardado cuánto duró. Es la materia prima del promedio.
+create or replace function public.close_product_cycle()
+returns trigger
+language plpgsql
+as $$
+begin
+  if old.in_stock and not new.in_stock
+     and old.purchased_on is not null
+     and current_date >= old.purchased_on then
+    insert into public.product_cycles (household_id, product_id, started_on, ended_on)
+    values (new.household_id, new.id, old.purchased_on, current_date);
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists record_product_cycle on public.products;
+create trigger record_product_cycle after update on public.products
+  for each row execute function public.close_product_cycle();
+
+-- Promedio de duración por producto.
+--
+-- El filtro por auth.uid() NO es decorativo: una vista normal se ejecuta con
+-- los permisos de su dueño (postgres), que se salta el RLS de product_cycles.
+-- Sin ese where, cualquier cuenta vería los promedios de todos los hogares.
+create or replace view public.product_duration_stats as
+select
+  product_id,
+  household_id,
+  count(*)::int                as cycles,
+  round(avg(days))::int        as avg_days,
+  min(days)::int               as min_days,
+  max(days)::int               as max_days,
+  max(ended_on)                as last_ended_on
+from public.product_cycles
+where household_id in (select id from public.households where owner_id = auth.uid())
+group by product_id, household_id;
+
+-- security_invoker existe desde PostgreSQL 15. Donde esté, se añade como
+-- segunda barrera; donde no, la vista ya se protege con el filtro de arriba.
+do $$
+begin
+  execute 'alter view public.product_duration_stats set (security_invoker = on)';
+exception when others then
+  raise notice 'security_invoker no disponible en esta versión; la vista se protege con auth.uid()';
+end;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 4. Hogar y categorías iniciales al crear la cuenta
@@ -182,6 +265,7 @@ alter table public.households enable row level security;
 alter table public.categories enable row level security;
 alter table public.stores     enable row level security;
 alter table public.products   enable row level security;
+alter table public.product_cycles enable row level security;
 
 drop policy if exists "hogar propio" on public.households;
 create policy "hogar propio" on public.households
@@ -193,7 +277,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['categories', 'stores', 'products'] loop
+  foreach t in array array['categories', 'stores', 'products', 'product_cycles'] loop
     execute format('drop policy if exists "solo mi hogar" on public.%I', t);
     execute format($p$
       create policy "solo mi hogar" on public.%I
@@ -209,8 +293,10 @@ $$;
 -- por defecto; se repiten aquí para que el script funcione en cualquier proyecto).
 grant usage on schema public to authenticated;
 grant select, insert, update, delete
-  on public.households, public.categories, public.stores, public.products
+  on public.households, public.categories, public.stores, public.products,
+     public.product_cycles
   to authenticated;
+grant select on public.product_duration_stats to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 6. Almacenamiento de fotografías

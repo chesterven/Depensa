@@ -5,7 +5,7 @@
  * - Los datos NO pasan por aquí: viven en la base de datos y se piden siempre
  *   frescos, porque cualquier miembro del hogar puede haberlos cambiado.
  */
-const VERSION = 'v3.0.0';
+const VERSION = 'v3.1.0';
 const CACHE_NAME = `despensa-${VERSION}`;
 
 /* precache:start */
@@ -19,6 +19,7 @@ const PRECACHE = [
   './js/api/auth.js',
   './js/api/catalog.js',
   './js/api/client.js',
+  './js/api/cycles.js',
   './js/api/household.js',
   './js/api/photos.js',
   './js/api/products.js',
@@ -50,6 +51,7 @@ const PRECACHE = [
   './js/services/demo-data.js',
   './js/services/diagnostics.js',
   './js/services/inventory.js',
+  './js/services/notifications.js',
   './js/state.js',
   './js/theme.js',
   './js/utils/date.js',
@@ -117,6 +119,29 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+/**
+ * Al tocar un aviso de vencimiento: si la app ya está abierta se enfoca esa
+ * ventana; si no, se abre en la pantalla que corresponde.
+ */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = event.notification.data?.url || './';
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const scope = new URL('./', self.location.href).href;
+    for (const client of clients) {
+      if (client.url.startsWith(scope)) {
+        await client.focus();
+        if ('navigate' in client && target.startsWith('#')) {
+          try { await client.navigate(scope + target); } catch (_) { /* algunos navegadores no lo permiten */ }
+        }
+        return;
+      }
+    }
+    await self.clients.openWindow(new URL(target, scope).href);
+  })());
 });
 
 function isSameOrigin(url) {

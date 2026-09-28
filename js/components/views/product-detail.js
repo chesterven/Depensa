@@ -5,7 +5,7 @@ import { money, moneyOrDash } from '../../utils/format.js';
 import { formatDate, formatRelative } from '../../utils/date.js';
 import { state } from '../../state.js';
 import { photoUrl } from '../../api/photos.js';
-import { expiryInfo, EXPIRY, expiryPresets } from '../../services/inventory.js';
+import { expiryInfo, EXPIRY, expiryPresets, durationInfo, formatDuration } from '../../services/inventory.js';
 import { toggleStock, removeProduct, setExpiry } from '../../services/actions.js';
 import { emptyState } from '../ui/empty.js';
 import { openSheet } from '../ui/sheet.js';
@@ -39,6 +39,7 @@ export function render(ctx) {
   ctx.onState(() => ctx.refresh());
 
   const info = expiryInfo(product);
+  const duration = durationInfo(product);
   const root = h('div');
 
   /* ---- Foto y estado ---- */
@@ -65,6 +66,9 @@ export function render(ctx) {
     product.inStock ? 'Se acabó, ponlo en la lista' : 'Ya lo compré'),
   ));
 
+  /* ---- Cuánto dura en casa ---- */
+  root.appendChild(durationCard());
+
   /* ---- Detalles ---- */
   root.appendChild(h('div.card.mt-2',
     h('div.card-head', h('h3', 'Detalles')),
@@ -76,11 +80,59 @@ export function render(ctx) {
         () => openExpirySheet())
       : infoRow('clock', 'Vencimiento', 'No aplica', () => openProductForm(product)),
     infoRow('calculator', 'Precio de referencia', moneyOrDash(product.referencePrice), () => openProductForm(product)),
+    infoRow('cart', 'Fecha de compra',
+      product.purchasedOn ? formatDate(product.purchasedOn) : 'Sin registrar',
+      () => openProductForm(product)),
     infoRow('refresh', product.inStock ? 'Repuesto' : 'Se acabó', formatRelative(product.statusChangedAt)),
     infoRow('calendar', 'Agregado', formatDate(product.createdAt)),
   ));
 
   return root;
+
+  /** Tarjeta «cuánto dura»: el promedio y, si está en casa, cuánto lleva abierto. */
+  function durationCard() {
+    const card = h('div.card.mt-2',
+      h('div.card-head',
+        h('h3', 'Cuánto dura en casa'),
+        duration.known ? h('span.badge.badge--done', duration.cycles === 1 ? '1 vez' : `${duration.cycles} veces`) : null));
+
+    if (!duration.known) {
+      card.appendChild(h('div.row', { style: { gap: '12px', alignItems: 'flex-start' } },
+        h('span.menu-item__icon', { html: icon('clock', { size: 18 }) }),
+        h('div.grow',
+          h('div', { style: { fontWeight: 600 } }, duration.label),
+          h('div.muted.small', duration.hint))));
+      if (duration.elapsedLabel) {
+        card.appendChild(h('p.muted.small', { style: { marginBottom: 0, marginTop: '10px' } },
+          `Lleva ${duration.elapsedLabel} en casa.`));
+      }
+      return card;
+    }
+
+    card.appendChild(h('div.hero', { style: { marginTop: '4px' } },
+      h('div.hero__label', 'Te dura en promedio'),
+      h('div.hero__value', duration.label),
+      h('div.hero__meta',
+        duration.minDays !== duration.maxDays
+          ? h('span.hero__chip',
+            h('span', { html: icon('scale', { size: 16 }) }),
+            `Entre ${formatDuration(duration.minDays)} y ${formatDuration(duration.maxDays)}`)
+          : null,
+      )));
+
+    card.appendChild(h('p.muted.small', { style: { marginTop: '10px', marginBottom: 0 } }, duration.hint));
+
+    if (duration.elapsedLabel) {
+      // .notice ya es ámbar por defecto; --info lo vuelve azul informativo
+      card.appendChild(h('div', { class: `notice mt-2 ${duration.overdue ? '' : 'notice--info'}` },
+        h('span', { html: icon(duration.overdue ? 'alert' : 'clock', { size: 18 }) }),
+        h('span.grow', duration.overdue
+          ? `Lleva ${duration.elapsedLabel} en casa, más de lo habitual. ¿Ya se acabó?`
+          : `Lleva ${duration.elapsedLabel} en casa.`)));
+    }
+
+    return card;
+  }
 
   function infoRow(iconName, label, value, onClick = null) {
     const content = h('div.row', { style: { gap: '12px', padding: '11px 0', borderTop: '1px solid var(--line)' } },

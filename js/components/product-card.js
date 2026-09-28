@@ -3,8 +3,8 @@ import { h } from '../utils/dom.js';
 import { icon } from '../utils/icons.js';
 import { initials, money } from '../utils/format.js';
 import { photoUrl } from '../api/photos.js';
-import { state } from '../state.js';
-import { expiryInfo, EXPIRY } from '../services/inventory.js';
+import { state, durationOf } from '../state.js';
+import { expiryInfo, EXPIRY, formatDuration } from '../services/inventory.js';
 import { toggleStock } from '../services/actions.js';
 
 /** Etiqueta de vencimiento lista para pintar (o null). */
@@ -67,10 +67,12 @@ export function productCard(product, ctx) {
 export function productRow(product, ctx, { showStore = false } = {}) {
   const badge = expiryBadge(product);
   const category = state.categoriesById.get(product.categoryId);
+  const stats = durationOf(product);
   const meta = [
     category?.name,
     showStore ? state.storesById.get(product.storeId)?.name : null,
     product.unit || null,
+    stats?.cycles ? `dura ~${formatDuration(stats.avgDays)}` : null,
     product.referencePrice != null ? money(product.referencePrice) : null,
   ].filter(Boolean).join(' · ');
 

@@ -15,6 +15,7 @@ export function fromRow(row) {
     referencePrice: row.reference_price == null ? null : Number(row.reference_price),
     notes: row.notes || '',
     photoPath: row.photo_path || null,
+    purchasedOn: row.purchased_on || null,
     statusChangedAt: row.status_changed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -34,6 +35,7 @@ function toRow(product) {
     referencePrice: 'reference_price',
     notes: 'notes',
     photoPath: 'photo_path',
+    purchasedOn: 'purchased_on',
   };
   for (const [key, column] of Object.entries(map)) {
     if (product[key] !== undefined) row[column] = product[key];

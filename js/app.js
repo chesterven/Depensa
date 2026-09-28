@@ -12,6 +12,7 @@ import {
   startAutoRefresh, stopAutoRefresh,
 } from './state.js';
 import { onAuthChange } from './api/auth.js';
+import { startExpiryWatch, stopExpiryWatch } from './services/notifications.js';
 import { registerRoutes, initRouter, go, back, currentPath } from './router.js';
 import { toast, toastOk, toastError } from './components/ui/toast.js';
 import { openSheet, closeAllSheets } from './components/ui/sheet.js';
@@ -61,6 +62,7 @@ function renderFullscreen(node) {
   shellReady = false;
   routerReady = false;
   stopAutoRefresh();
+  stopExpiryWatch();
   closeAllSheets();
   setChildren($('#app'), node);
   $('#loading')?.remove();
@@ -274,6 +276,7 @@ async function startApp() {
     routerReady = true;
   }
   startAutoRefresh();
+  startExpiryWatch(subscribe);
   $('#loading')?.remove();
   document.body.dataset.ready = 'true';
 }

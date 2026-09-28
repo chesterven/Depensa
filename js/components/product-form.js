@@ -93,7 +93,7 @@ export function openProductForm(product = null, { defaults = {} } = {}) {
     const stockToggle = segmented(
       [{ value: 'in', label: 'Sí hay' }, { value: 'out', label: 'No hay' }],
       inStock ? 'in' : 'out',
-      (value) => { inStock = value === 'in'; },
+      (value) => { inStock = value === 'in'; paintPurchased(); },
     );
 
     /* ---- Vencimiento ---- */
@@ -145,6 +145,20 @@ export function openProductForm(product = null, { defaults = {} } = {}) {
       }
     });
 
+    /* ---- Fecha de compra (alimenta el promedio de «cuánto dura») ---- */
+    const purchasedInput = input({
+      type: 'date',
+      name: 'purchasedOn',
+      value: product?.purchasedOn || (editing ? '' : todayKey()),
+      max: todayKey(),
+    });
+    const purchasedField = field('Fecha de compra', purchasedInput, {
+      hint: 'Con esto la app calcula cuánto te dura. Si la dejas vacía, se usa el día que lo marques como comprado.',
+    });
+    // Solo aplica a lo que hay en casa: sin existencia no hay nada que contar
+    function paintPurchased() { purchasedField.hidden = !inStock; }
+    paintPurchased();
+
     const unitInput = input({ name: 'unit', value: product?.unit || '', placeholder: 'Ej. 1 litro, bolsa de 5 lb' });
     const priceWrap = moneyInput(state.household?.currencySymbol || '$', {
       name: 'referencePrice', value: product?.referencePrice ?? '', placeholder: 'Opcional',
@@ -154,6 +168,7 @@ export function openProductForm(product = null, { defaults = {} } = {}) {
     const details = h('details.details',
       h('summary', 'Más detalles (comercio, presentación, precio)'),
       h('div.mt-1',
+        purchasedField,
         field('Comercio donde se compra', storeSelect),
         field('Presentación', unitInput),
         field('Precio de referencia', priceWrap),
@@ -224,6 +239,8 @@ export function openProductForm(product = null, { defaults = {} } = {}) {
               referencePrice: priceWrap.querySelector('input').value === ''
                 ? null : toNumber(priceWrap.querySelector('input').value, 0),
               notes: notesInput.value.trim(),
+              // La fecha de compra describe la existencia actual: si no hay, no hay fecha
+              purchasedOn: inStock ? (purchasedInput.value || null) : null,
             };
 
             api.setBusy(true);

@@ -7,6 +7,7 @@ teléfonos de la casa ven exactamente lo mismo.
 - **Sincronizada**: una sola cuenta compartida; lo que cambia un teléfono aparece en los demás.
 - **Con fotos**: cada producto puede tener su fotografía, tomada con la cámara.
 - **Con vencimientos**: fecha opcional por producto (o «no aplica»), con avisos y filtros.
+- **Aprende cuánto te dura**: guarda la fecha de compra y calcula el promedio de cada producto.
 - **Simple**: la única pregunta es *¿hay o no hay?*; lo que no hay forma la lista de compras.
 - **Instalable**: se agrega a la pantalla de inicio en Android, iPhone/iPad y computadoras.
 
@@ -106,6 +107,31 @@ Cada acción se puede **deshacer** desde el aviso que aparece abajo.
 | **Falta** | Lo marcado como «no hay», agrupado por comercio. |
 | **Más** | Categorías, comercios, ajustes del hogar, datos y apariencia. |
 
+### ¿Cuánto dura cada cosa?
+
+Cada producto guarda su **fecha de compra**. Cuando lo marcas como acabado, la app anota en
+silencio cuánto duró esa vez. A partir de la segunda, la ficha del producto muestra el promedio:
+*«Jabón de Platos te dura en promedio 2 semanas»*.
+
+- La fecha de compra se pone sola el día que marcas algo como comprado; puedes cambiarla a mano en
+  **Más detalles** del formulario.
+- Si algo lleva en casa bastante más de lo habitual, la ficha lo avisa por si se te olvidó marcarlo.
+- En la vista de lista, cada producto muestra su promedio junto a los demás datos.
+- **Deshacer** no ensucia el promedio: si tocas «se acabó» por error, la app retira ese registro.
+
+### Avisos de vencimiento
+
+En **Ajustes del hogar** eliges con cuántos días de anticipación quieres el aviso (3, 5, 7, 15 o 30)
+y en **Avisos en el teléfono** los activas.
+
+> **Importante — hasta dónde llegan estos avisos.** Los muestra la propia aplicación, así que solo
+> aparecen **mientras Despensa está abierta**, aunque sea en segundo plano. Con la app cerrada del
+> todo el teléfono no recibe nada. Para avisos con la app cerrada haría falta un servidor que los
+> empuje (Web Push); no está incluido.
+
+En iPhone y iPad los avisos solo existen si instalas Despensa en la pantalla de inicio
+(Compartir → Añadir a inicio) y la abres desde ahí; en una pestaña de Safari no hay avisos.
+
 ### Categorías
 
 El hogar arranca con **Alimentos, Bebidas, Medicina, Aseo del hogar, Aseo personal, Mascotas, Bebé,
@@ -135,8 +161,9 @@ categoría define si sus productos **manejan fecha de vencimiento** por defecto.
     │   ├── household.js    Hogar y preferencias compartidas
     │   ├── products.js     Productos
     │   ├── catalog.js      Categorías y comercios
+    │   ├── cycles.js       Cuánto dura cada producto
     │   └── photos.js       Compresión y subida de fotos
-    ├── services/           Reglas (vencimientos, filtros, acciones, diagnóstico)
+    ├── services/           Reglas (vencimientos, duración, avisos, filtros, acciones)
     ├── components/         Vistas, formularios y piezas de interfaz
     └── utils/              DOM, formato, fechas, iconos
 ```
@@ -151,7 +178,8 @@ incluido en la carpeta `vendor/` (no se descarga nada de Internet en tiempo de e
 | `households` | Un hogar por cuenta: nombre, días de aviso de vencimiento y moneda. |
 | `categories` | Categorías del hogar, con color, icono y si sus productos vencen. |
 | `stores` | Comercios donde se compra. |
-| `products` | Nombre, categoría, comercio, presentación, **in_stock**, **expires_on**, precio de referencia, notas y ruta de la foto. |
+| `products` | Nombre, categoría, comercio, presentación, **in_stock**, **expires_on**, **purchased_on**, precio de referencia, notas y ruta de la foto. |
+| `product_cycles` | Historial: cuánto duró el producto cada vez que se acabó. Lo llena sola la base de datos. |
 
 Las fotos se guardan en el bucket `product-photos` del almacenamiento de Supabase.
 
